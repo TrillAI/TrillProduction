@@ -1,0 +1,12 @@
+# deps + generated artifacts
+node_modules/
+package-lock.json.bak
+.DS_Store
+*.log
+
+# APK build intermediates + tool caches (the APK itself IS committed)
+build/
+tools/.cache/
+
+# python bytecode (test/apk-verify.py + tools/*.py)
+__pycache__/
