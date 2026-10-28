@@ -12,7 +12,8 @@
     "test:pwa": "node test/pwa-e2e.js",
     "build:apk": "python3 tools/build-apk.py",
     "build:pwa": "node tools/build-pwa.js",
-    "test:ui": "node test/neon-ui-test.js"
+    "test:ui": "node test/neon-ui-test.js",
+    "test:icons": "python3 test/icons-test.py"
   },
   "engines": {
     "node": ">=18"

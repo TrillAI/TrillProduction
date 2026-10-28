@@ -266,15 +266,11 @@ body.gig-on .gig-btn { color: #2bff88; border-color: rgba(43,255,136,.5); }
 .wave-note.left { left: 10px; background: linear-gradient(90deg, rgba(10,13,20,.88) 55%, rgba(10,13,20,0)); }
 .wave-note.right { right: 10px; background: linear-gradient(-90deg, rgba(10,13,20,.88) 55%, rgba(10,13,20,0)); }
 #wave-canvas { width: 100%; height: 100%; display: block; }
-.mic-overlay {
-  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 10px;
-  align-items: center; justify-content: center; text-align: center; padding: 18px;
-  background: rgba(10, 13, 20, .92); backdrop-filter: blur(3px);
+.mic-controls {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 10px; margin: 14px 0 0;
 }
-.mic-title { margin: 0; font-size: 20px; font-weight: 800; }
-.mic-sub { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 430px; }
-.mic-hint { margin: 0; font-size: 12px; color: #6b7487; }
-.mic-error { margin: 4px 0 0; font-size: 13px; color: var(--red); max-width: 460px; }
+.mic-error { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--red); text-align: center; }
 
 .cents-row { display: flex; align-items: baseline; justify-content: center; gap: 18px; margin-top: 14px; }
 .cents { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; color: #cfd6e4; }
@@ -484,9 +480,10 @@ body.gig-on .gig-btn { color: #2bff88; border-color: rgba(43,255,136,.5); }
 .wave-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
 
 .strum-panel {
-  position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column;
-  background: rgba(8, 10, 16, .93); backdrop-filter: blur(3px); padding: 14px 16px;
+  display: flex; flex-direction: column; margin-top: 14px; padding: 14px 16px;
+  background: var(--card2); border: 1px solid var(--line); border-radius: 12px;
 }
+.strum-feedback { margin: 8px 0 0; text-align: center; }
 .strum-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; margin-bottom: 8px; }
 .strum-x {
   border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -1516,7 +1513,6 @@ html.theme-sun .knob-dial {
   background: radial-gradient(circle at 35% 30%, #f3eee4, #d9d0c2 70%);
 }
 html.theme-sun ::-webkit-scrollbar-thumb { background: #d4cbbd; border-color: var(--bg); }
-html.theme-sun .mic-overlay { background: rgba(255,255,255,.94); }
 html.theme-sun .wave-note.left { background: linear-gradient(90deg, rgba(255,255,255,.92) 55%, rgba(255,255,255,0)); }
 html.theme-sun .wave-note.right { background: linear-gradient(-90deg, rgba(255,255,255,.92) 55%, rgba(255,255,255,0)); }
 html.theme-sun .demo-card, html.theme-sun .toast { background: #fff; color: var(--text); border: 1px solid var(--line); }

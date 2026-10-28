@@ -290,16 +290,14 @@ const TOUR_N = TOUR.length;
     await page.evaluate(() => { localStorage.removeItem('tt.demoDone'); });
     await page.reload({ waitUntil: 'networkidle0' });
     await page.evaluate(() => { if (window.TT && window.TT.splash && window.TT.splash.dismiss) window.TT.splash.dismiss(); });
+    await page.evaluate(() => TT.app.showView('tune'));
     const resume = await waitFor(page, () => {
-      const t = Array.from(document.querySelectorAll('.toast')).find(t => /saved at step/.test(t.textContent));
-      return !!t;
-    }, 8000, 'resume toast after reload');
-    ok(resume, 'after a reload mid-tour a "resume" toast offers to continue');
+      const button = document.getElementById('btn-resume-tour');
+      return button && !button.hidden && !document.querySelector('#toasts .toast');
+    }, 8000, 'inline resume button after reload');
+    ok(resume, 'after a reload mid-tour an inline resume button is available without a popup');
     ok(savedStep === 3, 'progress was saved at step 4 (index 3)', String(savedStep));
-    await page.evaluate(() => {
-      const t = Array.from(document.querySelectorAll('.toast')).find(t => /saved at step/.test(t.textContent));
-      if (t) t.querySelector('button').click();
-    });
+    await page.click('#btn-resume-tour');
     await new Promise(r => setTimeout(r, 500));
     st = await page.evaluate(() => ({
       visible: !document.getElementById('demo-overlay').hidden,
@@ -456,7 +454,7 @@ const TOUR_N = TOUR.length;
     ok(joined, 'second device joins the session automatically (?join=)');
     /* the mic auto-starts when the profile already granted it (same origin as
      * the host page here) — otherwise start it by hand */
-    const joinerMicAuto = await joiner.evaluate(() => document.getElementById('mic-overlay').hidden);
+    const joinerMicAuto = await joiner.evaluate(() => document.getElementById('mic-controls').hidden);
     if (!joinerMicAuto) await joiner.click('#btn-mic-start');
     const joinerTuned = await waitFor(joiner, () => {
       return document.getElementById('note-detected').textContent === 'E'
@@ -537,10 +535,11 @@ const TOUR_N = TOUR.length;
 
     /* hosting a session needs the served web version — degrade gracefully */
     await page.click('#btn-remote-host');
-    const hostToast = await waitFor(page, () => {
-      return /web version/.test(document.getElementById('toasts').textContent);
-    }, 4000, 'hosting toast on file://');
-    ok(hostToast, 'file://: hosting a session explains it needs the web version (no crash)');
+    const hostFeedback = await waitFor(page, () => {
+      const feedback = document.getElementById('remote-feedback');
+      return !feedback.hidden && /web version/.test(feedback.textContent);
+    }, 4000, 'inline hosting feedback on file://');
+    ok(hostFeedback, 'file://: hosting a session explains inline that it needs the web version (no crash)');
 
     /* the share card still renders a usable link with no server at all */
     await goToView(page, 'progress');

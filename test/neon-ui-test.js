@@ -73,6 +73,9 @@ async function noOverflow(page, label) {
 
   assert.strictEqual(await page.$eval('#view-home', el => el.classList.contains('active')), true);
   assert.strictEqual(await page.$$eval('.feature-card', els => els.length), 22);
+  assert.strictEqual(await page.$eval('img.logo', el => el.complete && el.naturalWidth === 192), true,
+    'the supplied icon is used in the app header');
+  assert.strictEqual(await page.$eval('img.splash-logo', el => el.getAttribute('src')), 'icons/icon-192.png');
   const badLinks = await page.$$eval('[data-open-view]', els => els.map(el => el.dataset.openView)
     .filter(id => !document.getElementById('view-' + id)));
   assert.deepStrictEqual(badLinks, [], 'every home and dock destination must exist');
@@ -102,7 +105,29 @@ async function noOverflow(page, label) {
   await page.click('[data-open-view="home"].brand');
   console.log('PASS feature cards, metronome, and accessible drawer navigation');
 
+  // Existing notices disappear on entry, and no new popups can cover the tuner.
+  await page.evaluate(() => TT.app.toast('A notice from another tool'));
+  assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 1);
   await page.click('.feature-card[data-open-view="tune"]');
+  assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
+  const earned = await page.evaluate(() => {
+    TT.app.toast('A tuning notification');
+    TT.app.assist('Assistant message remains in the log', { toast: true });
+    TT.store.set('lessonsDone', ['ui-test']);
+    return TT.share.checkBadges(false).map(badge => badge.id);
+  });
+  assert(earned.includes('lesson-1'), 'achievements still unlock without covering the tuner');
+  assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
+  assert.match(await page.$eval('#assistant-log', el => el.textContent), /Assistant message remains/);
+  assert.strictEqual(await page.evaluate(() => {
+    const wave = document.querySelector('.wave-wrap');
+    return !wave.contains(document.getElementById('mic-controls')) && !wave.contains(document.getElementById('strum-panel'));
+  }), true, 'mic and strum panels do not cover the waveform');
+  await page.click('#btn-strum');
+  assert.match(await page.$eval('#strum-feedback', el => el.textContent), /needs the mic/i);
+  assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
+  await page.evaluate(() => TT.app.showView('tune'));
+  console.log('PASS tuner stays clear of popups and retains inline feedback');
   assert.strictEqual(await page.evaluate(() => TT.tuner.state.tuningMode), 'guitar');
   assert.deepStrictEqual(await page.$$eval('#tuner-strings button', els => els.map(el => el.textContent)), ['E', 'A', 'D', 'G', 'B', 'E']);
   assert.strictEqual(await page.$eval('#tuner-gauge-note', el => el.textContent), '–');
@@ -119,6 +144,16 @@ async function noOverflow(page, label) {
   assert.strictEqual(live.mic, 'on');
   assert.match(live.label, /LISTENING/);
   assert.match(live.needle, /rotate/);
+  await page.click('#btn-strum');
+  await page.waitForFunction(() => document.querySelectorAll('#strum-rows .strum-row:not(.wait)').length === 6, { timeout: 10000 });
+  assert.strictEqual(await page.evaluate(() => {
+    const wave = document.querySelector('.wave-wrap').getBoundingClientRect();
+    const panel = document.getElementById('strum-panel').getBoundingClientRect();
+    return !document.getElementById('strum-panel').hidden && panel.top >= wave.bottom;
+  }), true, 'strum results appear below the waveform, not over it');
+  assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
+  await page.click('#strum-close');
+  await page.evaluate(() => TT.app.showView('tune'));
   await page.click('#tuner-mic');
   assert.strictEqual(await page.$eval('#tuner-gauge-note', el => el.textContent), '–');
   assert.strictEqual(await page.evaluate(() => TT.audio.micState), 'off');

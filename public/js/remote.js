@@ -177,6 +177,13 @@
     if (els.status) els.status.textContent = txt;
   }
 
+  // Remote feedback stays by the controls instead of covering the tuner.
+  function setFeedback(txt) {
+    if (!els.feedback) return;
+    els.feedback.textContent = txt || '';
+    els.feedback.hidden = !txt;
+  }
+
   function renderPeer(snap, goneMsg) {
     if (!snap) {
       if (els.live) els.live.hidden = true;
@@ -232,9 +239,10 @@
   /* ---- host flow ---- */
   async function host() {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') {
-      TT.app.toast('Hosting needs the web version — open this app in a browser on the same network as the other device.');
+      setFeedback('Hosting needs the web version — open this app in a browser on the same network as the other device.');
       return;
     }
+    setFeedback('');
     try {
       const r = await fetch('/api/sessions', { method: 'POST' });
       const j = await r.json();
@@ -250,7 +258,7 @@
       setStatus('Waiting for a device to connect…');
       TT.app.assist('Remote session hosted — scan the QR code with the other device to sync your tuners.');
     } catch (e) {
-      TT.app.toast('Could not start a session: ' + e.message);
+      setFeedback('Could not start a session: ' + e.message);
     }
   }
 
@@ -261,13 +269,14 @@
     if (els.stopBtn) els.stopBtn.hidden = true;
     if (els.live) els.live.hidden = true;
     setStatus('');
+    setFeedback('');
     TT.app.assist('Remote session stopped.');
   }
 
   /* ---- join flow (?join=<id>) ---- */
   function join(id) {
     if (location.protocol !== 'http:' && location.protocol !== 'https:') {
-      TT.app.toast('Join the session by opening its link in a browser.');
+      setFeedback('Join the session by opening its link in a browser.');
       return;
     }
     connectSSE('join', id);
@@ -295,6 +304,7 @@
       qr: document.getElementById('remote-qr'),
       link: document.getElementById('remote-link'),
       status: document.getElementById('remote-status'),
+      feedback: document.getElementById('remote-feedback'),
       live: document.getElementById('remote-live'),
       liveTitle: document.getElementById('remote-live-title'),
       note: document.getElementById('remote-note'),
@@ -316,8 +326,8 @@
     if (copyBtn) copyBtn.addEventListener('click', () => {
       if (els.link && els.link.value) {
         (navigator.clipboard ? navigator.clipboard.writeText(els.link.value) : Promise.reject())
-          .then(() => TT.app.toast('Session link copied ✓'))
-          .catch(() => TT.app.toast('Copy blocked — select the link and copy it manually.'));
+          .then(() => setFeedback('Session link copied ✓'))
+          .catch(() => setFeedback('Copy blocked — select the link and copy it manually.'));
       }
     });
     const shareBtn = document.getElementById('btn-remote-share');
@@ -327,8 +337,8 @@
         navigator.share({ title: 'Trill Tuner — remote tuning session', text: 'Join my tuning session:', url: url }).catch(() => {});
       } else if (url) {
         (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
-          .then(() => TT.app.toast('Session link copied ✓'))
-          .catch(() => TT.app.toast('Copy blocked — select the link and copy it manually.'));
+          .then(() => setFeedback('Session link copied ✓'))
+          .catch(() => setFeedback('Copy blocked — select the link and copy it manually.'));
       }
     });
     const leaveBtn = document.getElementById('btn-remote-leave');

@@ -179,7 +179,7 @@
     dismiss.title = 'Dismiss';
     dismiss.addEventListener('click', () => { box.hidden = true; });
     box.appendChild(chip); box.appendChild(dismiss);
-    assist(`Those pitches fit ${p.name}. Tap the chip to switch.`, { toast: true });
+    assist(`Those pitches fit ${p.name}. Tap the chip to switch.`);
   }
 
   /* ---------- UI building ---------- */
@@ -378,9 +378,9 @@
     if (problems.length) {
       problems.sort((a, b) => Math.abs(b.c) - Math.abs(a.c));
       const worst = problems[0];
-      assist(`Strum check: ${inTuneCount} in tune. Worst offender is ${labelOf(worst.i)} at ${worst.c.toFixed(0)}¢ — fix that one first, then strum again.`, { toast: true });
+      assist(`Strum check: ${inTuneCount} in tune. Worst offender is ${labelOf(worst.i)} at ${worst.c.toFixed(0)}¢ — fix that one first, then strum again.`);
     } else if (inTuneCount) {
-      assist('Strum check: everything I heard is in tune 🤘', { toast: true });
+      assist('Strum check: everything I heard is in tune 🤘');
     } else {
       assist('Strum check heard nothing — make sure the mic is on and strum firmly.');
     }
@@ -394,11 +394,21 @@
     if (guitarApi) guitarApi.update({ active: T.state.active, tuned: T.state.tuned, cents: T.state.cents, signal: T.state.signal });
   }
 
+  function strumFeedback(message) {
+    const el = document.getElementById('strum-feedback');
+    if (!el) return;
+    el.textContent = message || '';
+    el.hidden = !message;
+  }
+
   T.strumCheck = async function () {
     if (TT.audio.micState !== 'on') {
-      assist('Strum check needs the mic — hit “Start listening” first.', { toast: true });
+      const message = 'Strum check needs the mic — hit “Start listening” first.';
+      strumFeedback(message);
+      assist(message);
       return;
     }
+    strumFeedback('');
     const btn = els.btnStrum;
     btn.disabled = true;
     els.strumPanel.hidden = false;
@@ -414,7 +424,9 @@
       renderStrum(res);
     } catch (e) {
       hideStrum();
-      assist('Strum check failed: ' + (e && e.message ? e.message : 'microphone unavailable'), { toast: true });
+      const message = 'Strum check failed: ' + (e && e.message ? e.message : 'microphone unavailable');
+      strumFeedback(message);
+      assist(message);
     }
     btn.disabled = false;
   };
@@ -611,7 +623,7 @@
     if (T.state.autoAdvance && T.state.autoDetect) {
       const next = nextUntuned(i);
       if (next == null) {
-        assist('All strings in tune — ready to rock! 🤘', { toast: true });
+        assist('All strings in tune — ready to rock! 🤘');
         celebrate();
       } else {
         setTimeout(() => {
@@ -884,7 +896,7 @@
       return;
     }
     TT.store.set('micGranted', true);
-    els.micOverlay.hidden = true;
+    els.micControls.hidden = true;
     history = []; unmatched = [];
     calibUntil = performance.now() + 1200;
     calibSamples = [];
@@ -901,12 +913,12 @@
     pill.classList.toggle('err', state === 'error');
     document.getElementById('mic-pill-text').textContent =
       state === 'on' ? 'Live' : state === 'requesting' ? 'Requesting…' : state === 'error' ? 'Mic blocked' : 'Mic off';
-    if (state === 'on') els.micOverlay.hidden = true;
+    if (state === 'on') els.micControls.hidden = true;
     if (state !== 'on') {
       stopLoop();
       T.state.freq = 0; T.state.signal = false; T.state.cents = null; T.state.inTune = false;
       els.waveCard.classList.remove('in-tune', 'out-tune');
-      els.micOverlay.hidden = false;
+      els.micControls.hidden = false;
       els.btnMicStart.disabled = state === 'requesting';
       els.btnMicStart.textContent = state === 'requesting' ? 'Requesting microphone…' : '🎤 Start listening';
       dot && (dot.className = 'dot');
@@ -930,7 +942,7 @@
       noteTargetSub: document.getElementById('note-target-sub'),
       waveCanvas: document.getElementById('wave-canvas'),
       waveCard: document.querySelector('#view-tune .wave-card'),
-      micOverlay: document.getElementById('mic-overlay'),
+      micControls: document.getElementById('mic-controls'),
       btnMicStart: document.getElementById('btn-mic-start'),
       btnNewTab: document.getElementById('btn-newtab'),
       micError: document.getElementById('mic-error'),
@@ -1189,7 +1201,7 @@
     TT.audio.onMic = handleMicState;
 
     if (TT.store.get('micGranted', false)) {
-      // returning user — permissions usually persist; autonomous start (fails silently into overlay)
+      // returning user — permissions usually persist; autonomous start (errors appear inline)
       startMicFlow();
     }
   };
