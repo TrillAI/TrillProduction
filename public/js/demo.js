@@ -117,20 +117,26 @@
   D.start = function (fromIdx) {
     if (!els.overlay) return;
     D.active = true;
+    const st = store();
+    if (st) st.set('demoDone', false);
+    if (els.resume) els.resume.hidden = true;
     els.overlay.hidden = false;
     showStep(fromIdx != null ? fromIdx : (store() ? (store().get('demoStep', 0) || 0) : 0));
   };
 
   D.hide = function () {
     /* hide without touching saved progress (used by tests / the splash flow) */
+    const wasActive = D.active;
     D.active = false;
     D.deferred = true;
+    if (wasActive && D.idx > 0 && els.resume) els.resume.hidden = false;
     if (els.overlay) els.overlay.hidden = true;
     if (els.spot) els.spot.hidden = true;
   };
 
   D.skip = function (silent) {
     D.active = false;
+    if (els.resume) els.resume.hidden = true;
     if (els.overlay) els.overlay.hidden = true;
     if (els.spot) els.spot.hidden = true;
     const st = store();
@@ -140,6 +146,7 @@
 
   function finish() {
     D.active = false;
+    if (els.resume) els.resume.hidden = true;
     if (els.overlay) els.overlay.hidden = true;
     if (els.spot) els.spot.hidden = true;
     const st = store();
@@ -158,7 +165,8 @@
       next: document.getElementById('demo-next'),
       back: document.getElementById('demo-back'),
       skip: document.getElementById('demo-skip'),
-      dots: document.getElementById('demo-dots')
+      dots: document.getElementById('demo-dots'),
+      resume: document.getElementById('btn-resume-tour')
     };
     if (!els.overlay) return;
     if (els.next) els.next.addEventListener('click', () => {
@@ -170,14 +178,13 @@
     const tourBtn = document.getElementById('btn-tour');
     if (tourBtn) tourBtn.addEventListener('click', () => D.start(0));
 
-    /* resume / auto-start bookkeeping */
+    // Keep a saved tour available without opening a popup over the tuner.
     const st = store();
     const done = st ? !!st.get('demoDone', false) : false;
     const saved = st ? (st.get('demoStep', 0) || 0) : 0;
-    if (!done) {
-      if (saved > 0) {
-        TT.app.toast('Your tour was saved at step ' + (saved + 1) + ' — pick up where you left off?', { actionLabel: 'Resume tour', action: () => D.start(saved) });
-      }
+    if (els.resume) {
+      els.resume.hidden = done || saved <= 0;
+      els.resume.addEventListener('click', () => D.start());
     }
   };
 

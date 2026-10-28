@@ -6,7 +6,15 @@
   const app = { VERSION: '2.1.0' };
   const feed = [];
 
+  function clearToasts() {
+    const box = document.getElementById('toasts');
+    if (box) box.replaceChildren();
+  }
+
   function toast(msg, opts) {
+    // The tuner must stay unobstructed while playing. Its essential feedback
+    // lives in the tuner controls; other views can still show notifications.
+    if (app.currentView === 'tune') return;
     const box = document.getElementById('toasts');
     if (!box) return;
     const t = document.createElement('div');
@@ -99,6 +107,7 @@
   app.showView = function (id) {
     if (!document.getElementById('view-' + id)) return;
     app.currentView = id;
+    if (id === 'tune') clearToasts();
     const shell = document.querySelector('.app');
     if (shell) shell.dataset.currentView = id;
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === id));

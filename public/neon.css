@@ -331,7 +331,6 @@ html.theme-night .btn-ghost { background: transparent; }
 html.theme-night select, html.theme-night input[type="text"], html.theme-night input[type="search"], html.theme-night input[type="number"], html.theme-night input:not([type]) { border-color: rgba(193, 179, 236, .17); background: #0d0c17; color: #f5f1ff; }
 html.theme-night .seg, html.theme-night .wave-wrap, html.theme-night .sig, html.theme-night .chip { background: #0d0b16; }
 html.theme-night .seg-btn.active { color: #fff; }
-html.theme-night .mic-overlay { background: rgba(13, 11, 22, .95); }
 html.theme-night .splash { background: radial-gradient(ellipse at 75% 0%, rgba(173, 43, 150, .22), transparent 55%), radial-gradient(ellipse at 0% 100%, rgba(49, 133, 193, .2), transparent 55%), #090813; }
 html.theme-night .splash-logo { filter: drop-shadow(0 8px 25px rgba(175, 86, 239, .4)); }
 html.theme-night .splash-title { font-family: 'Space Grotesk', sans-serif; font-size: 32px; letter-spacing: .08em; }

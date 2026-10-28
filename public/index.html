@@ -35,7 +35,7 @@ try {
   }</script>
 </head>
 <body class="theme-acoustic">
-<svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="feature-gradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6e7bff"/><stop offset="1" stop-color="#c270ed"/></linearGradient><linearGradient id="brand-gradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ef3aa8"/><stop offset=".52" stop-color="#a56af7"/><stop offset="1" stop-color="#42d3fb"/></linearGradient></defs><symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l2-5 3 11 3-15 3 12 2-5 2 2h1"/></symbol>
+<svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="feature-gradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6e7bff"/><stop offset="1" stop-color="#c270ed"/></linearGradient></defs><symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l2-5 3 11 3-15 3 12 2-5 2 2h1"/></symbol>
   <symbol id="i-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v6a5 5 0 0 0 10 0V3M12 14v7"/></symbol>
   <symbol id="i-metro" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l4 18H5L9 3ZM12 15l5-9"/><circle cx="12" cy="18" r=".7" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-record" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></symbol>
@@ -74,10 +74,7 @@ try {
 </svg>
 <div class="splash" id="splash" hidden>
   <div class="splash-inner">
-    <svg class="splash-logo" viewBox="0 0 100 100" aria-hidden="true">
-      <defs><linearGradient id="slg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ef3aa8"/><stop offset=".52" stop-color="#a56af7"/><stop offset="1" stop-color="#42d3fb"/></linearGradient></defs>
-      <g class="splash-pick" fill="none" stroke="url(#slg)" stroke-width="8" stroke-linecap="round"><path d="M12 43v14M31 28v44M50 11v78M69 28v44M88 43v14"/></g>
-    </svg>
+    <img class="splash-logo splash-pick" src="icons/icon-192.png" alt="" aria-hidden="true">
     <h1 class="splash-title">TRILL <span>TUNER</span></h1>
     <p class="splash-tag">tune · play along · take it apart · learn</p>
     <div class="splash-facts">
@@ -99,7 +96,7 @@ try {
 
   <header class="topbar">
     <button class="brand" type="button" data-open-view="home" aria-label="Trill Tuner home">
-      <svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><g fill="none" stroke="url(#brand-gradient)" stroke-width="4.5" stroke-linecap="round"><path d="M5 20v8M14 13v22M23 5v38M32 14v20M41 20v8"/></g></svg>
+      <img class="logo" src="icons/icon-192.png" alt="" aria-hidden="true">
       <span class="brand-copy"><span class="brand-name">TRILL <span>TUNER</span></span><span class="tagline">PLAY <i>•</i> PRACTICE <i>•</i> CREATE <i>•</i> ALL IN ONE</span></span>
     </button>
     <div class="topbar-right">
@@ -309,21 +306,18 @@ try {
               <div class="note-big" id="note-target">–</div>
               <div class="note-sub" id="note-target-sub">auto-detect</div>
             </div>
-            <div class="mic-overlay" id="mic-overlay">
-              <p class="mic-title">Let's get you in tune</p>
-              <p class="mic-sub"><b>Standard tuning</b> is loaded (E A D G B E). Allow mic access, then strum a string — the wave line turns <span class="g">green</span> when you're in tune, <span class="r">red</span> while you're not.</p>
-              <button class="btn btn-primary" id="btn-mic-start">🎤 Start listening</button>
-              <p class="mic-hint">Your audio never leaves this page. Mic stays off until you say go.</p>
-              <button class="btn btn-ghost tiny" id="btn-newtab">Open in a new tab ↗</button>
-              <p class="mic-error" id="mic-error" hidden></p>
+          </div>
+          <div class="mic-controls" id="mic-controls">
+            <button class="btn btn-primary" id="btn-mic-start">🎤 Start listening</button>
+            <button class="btn btn-ghost tiny" id="btn-newtab">Open in a new tab ↗</button>
+            <p class="mic-error" id="mic-error" role="status" hidden></p>
+          </div>
+          <div class="strum-panel" id="strum-panel" hidden>
+            <div class="strum-head">
+              <b id="strum-title">Strum check</b>
+              <button class="strum-x" id="strum-close" title="Close">✕</button>
             </div>
-            <div class="strum-panel" id="strum-panel" hidden>
-              <div class="strum-head">
-                <b id="strum-title">Strum check</b>
-                <button class="strum-x" id="strum-close" title="Close">✕</button>
-              </div>
-              <div class="strum-rows" id="strum-rows"></div>
-            </div>
+            <div class="strum-rows" id="strum-rows"></div>
           </div>
           <div class="cents-row">
             <div class="cents" id="cents-val">–¢</div>
@@ -334,6 +328,7 @@ try {
             <button class="btn" id="btn-strum" title="Strum all strings at once — I'll grade every string in one go">⚡ Strum check</button>
             <button class="btn btn-ghost" id="btn-guide" title="What this tuning sounds like + famous songs that use it">📖 Tuning guide</button>
           </div>
+          <p class="hint strum-feedback" id="strum-feedback" role="status" hidden></p>
         </div>
 
         <div class="card settings-card">
@@ -386,6 +381,7 @@ try {
           <ul class="assistant" id="assistant-log"></ul>
           <div class="row-btns">
             <button class="btn btn-ghost" id="btn-tour">🧭 Take the tour</button>
+            <button class="btn btn-ghost" id="btn-resume-tour" hidden>Resume tour</button>
             <button class="btn btn-ghost" id="btn-install" hidden>📱 Install app</button>
           </div>
         </div>
@@ -399,6 +395,7 @@ try {
                 <button class="btn btn-primary" id="btn-remote-host">📡 Host a session</button>
                 <button class="btn btn-ghost" id="btn-remote-stop" hidden>■ Stop hosting</button>
               </div>
+              <p class="hint" id="remote-feedback" role="status" hidden></p>
               <div class="remote-qr-wrap" id="remote-qr-wrap" hidden>
                 <canvas id="remote-qr" class="qr-canvas" width="180" height="180"></canvas>
                 <div class="remote-qr-side">
