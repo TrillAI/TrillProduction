@@ -5,6 +5,14 @@
 const path = require('path');
 const puppeteer = require('puppeteer');
 
+async function ensureMic(page) {
+  await page.waitForFunction(() => window.TT && TT.audio && TT.audio.micState !== 'requesting', { timeout: 12000 });
+  if (await page.evaluate(() => TT.audio.micState !== 'on')) {
+    await page.evaluate(() => TT.tuner.startMic());
+    await page.waitForFunction(() => TT.audio.micState === 'on', { timeout: 12000 });
+  }
+}
+
 const BASE = 'http://localhost:3000';
 const DIR = __dirname;
 let failures = 0;
@@ -99,7 +107,7 @@ async function goToView(page, id) {
     const hasHalf = await page.$$eval('#select-tuning option', o => o.some(x => x.value === 'halfstep'));
     ok(hasDropD && hasHalf, 'Drop D + Half Step Down presets present');
 
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const reached = await waitFor(page,
       () => document.querySelector('#view-tune .wave-card').classList.contains('in-tune'),
       10000, 'in-tune on low E');
@@ -127,7 +135,7 @@ async function goToView(page, id) {
     const { browser, page } = await launch('a2_flat20.wav');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await dismissSplash(page);
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const reached = await waitFor(page,
       () => document.getElementById('note-detected').textContent === 'A', 10000);
     const s = await readState(page);
@@ -148,7 +156,7 @@ async function goToView(page, id) {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await dismissSplash(page);
     await page.select('#select-tuning', 'dropd');
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const reached = await waitFor(page,
       () => document.querySelector('#view-tune .wave-card').classList.contains('in-tune'), 10000);
     const s = await readState(page);
@@ -165,7 +173,7 @@ async function goToView(page, id) {
     const { browser, page } = await launch('e5_overtone.wav');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await dismissSplash(page);
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const reached = await waitFor(page,
       () => document.querySelector('#view-tune .wave-card').classList.contains('in-tune'), 10000);
     const s = await readState(page);
@@ -269,7 +277,7 @@ async function goToView(page, id) {
     const { browser, page } = await launch('e2_in_tune.wav');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await dismissSplash(page);
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     await waitFor(page, () => document.querySelector('#view-tune .wave-card').classList.contains('in-tune'), 10000, 'in-tune');
 
     // --- overtone panel ---
@@ -512,22 +520,14 @@ async function goToView(page, id) {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     const splashUp = await page.evaluate(() => { const s = document.getElementById('splash'); return !!s && !s.hidden; });
     ok(splashUp, 'splash screen shows on a fresh visit');
-    const splashFacts = await page.$eval('#splash-pedals', el => el.textContent);
-    ok(+splashFacts > 100, 'splash reports live library counts', splashFacts + ' pedals');
-    await page.click('#splash-forever');
-    /* the Enter button stays disabled until the boot steps have reported in —
-     * clicking it earlier is a no-op, so wait for it to unlock first */
-    await waitFor(page, () => {
-      const b = document.getElementById('splash-enter');
-      return !!b && !b.disabled;
-    }, 10000, 'splash enter button unlocked');
+    ok(await page.$eval('#splash-title', el => el.textContent) === 'Trill Tuner', 'first splash has the title');
+    ok(await page.$eval('#splash-credit', el => el.textContent) === 'by Brian Cross', 'second splash has the credit');
     await page.click('#splash-enter');
-    await new Promise(r => setTimeout(r, 900));
-    const splashGone = await page.evaluate(() => document.getElementById('splash').hidden || document.getElementById('splash').classList.contains('splash-out'));
-    ok(splashGone, 'clicking Enter dismisses the splash');
+    await new Promise(r => setTimeout(r, 500));
+    ok(await page.evaluate(() => document.getElementById('splash').hidden), 'skip dismisses the splash');
+    await page.evaluate(() => TT.splash.toggleForever(false));
     await page.goto(BASE, { waitUntil: 'networkidle0' });
-    const splashSkipped = await page.evaluate(() => document.getElementById('splash').hidden);
-    ok(splashSkipped, '“skip this next time” is remembered');
+    ok(await page.evaluate(() => document.getElementById('splash').hidden), 'saved intro preference is respected');
 
     ok(page._errors.length === 0, 'no JS errors (advanced features)', JSON.stringify(page._errors.slice(0, 3)));
     await browser.close();

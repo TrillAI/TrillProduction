@@ -1,17 +1,5 @@
-/* Trill Tuner — Stem lab: take a song apart.
- *
- * Load any audio file and remove — or isolate — the vocals, the drums, the
- * bass, the electric guitar, the acoustic guitar, the keys, the strings or the
- * synth. The classic karaoke centre-cancel is here too, and the acoustic-only
- * mode leaves the electric guitar, the bass and the drums exactly where they
- * were.
- *
- * The engine (lib/dsp.js) works offline on your own machine: it builds two
- * spectrograms — one of *sustained* content (a per-bin median over time) and
- * one of *transient* content (how far this frame is above that median) — plus
- * a centre/side split, and every instrument profile is a weighted combination
- * of those three. Nothing is uploaded, nothing is guessed by a server.
- */
+/* Stem Lab: on-device SCNet neural source separation. The four outputs are
+ * estimates, not the original multitrack recordings; audio is never uploaded. */
 (function () {
   'use strict';
 
@@ -25,6 +13,8 @@
     remove: true,
     amount: 0.92,
     result: null,
+    aiStems: null,       /* four sample-aligned Int16 stereo estimates */
+    generation: 0,       /* invalidate in-flight file decodes */
     node: null,
     gain: null,
     playing: false,
@@ -40,27 +30,16 @@
   let els = {};
   let worker = null;      /* background separation worker, when the page can have one */
 
-  const PROFILE_LABEL = {
-    vocals: 'Vocals', drums: 'Drums (all)', kick: 'Kick drum', snare: 'Snare', hats: 'Hi-hats / cymbals',
-    bass: 'Bass guitar', 'electric-guitar': 'Electric guitar', 'acoustic-guitar': 'Acoustic guitar',
-    keys: 'Piano / keys', strings: 'Strings', synth: 'Synth', guitar: 'Guitar (acoustic + electric)'
-  };
+  const PROFILE_LABEL = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', other: 'Other instruments' };
   const PRESETS = [
-    { id: 'instrumental', label: '🎤 Instrumental maker', mode: 'vocals', remove: true, amount: 0.95, desc: 'Vocals out, everything else in. The karaoke / play-along file.' },
-    { id: 'acapella', label: '🎙️ Isolate the vocals', mode: 'vocals', remove: false, amount: 0.9, desc: 'Only the vocal line — good for learning phrasing and lyrics.' },
-    { id: 'drumless', label: '🥁 Remove the drums', mode: 'drums', remove: true, amount: 0.9, desc: 'Play along with the drummer gone; the groove becomes yours to keep.' },
-    { id: 'drumsonly', label: '🥁 Drums only', mode: 'drums', remove: false, amount: 0.9, desc: 'The kit on its own — check your timing against the real thing.' },
-    { id: 'bassless', label: '🎸 Remove the bass', mode: 'bass', remove: true, amount: 0.9, desc: 'A hole in the low end that a bass player (or your thumb) can fill.' },
-    { id: 'bassonly', label: '🎸 Bass only', mode: 'bass', remove: false, amount: 0.9, desc: 'Just the low end — learn the bass line, then play it on the guitar.' },
-    { id: 'electric-off', label: '⚡ Remove the electric guitar', mode: 'electric-guitar', remove: true, amount: 0.9, desc: 'Rhythm guitar out, vocals/drums/bass/acoustic stay.' },
-    { id: 'electric-only', label: '⚡ Electric guitar only', mode: 'electric-guitar', remove: false, amount: 0.9, desc: 'The amp in the room — study the tone and the parts.' },
-    { id: 'acoustic-off', label: '🪕 Remove ONLY the acoustic guitar', mode: 'acoustic-guitar', remove: true, amount: 0.88, desc: 'The acoustic goes and nothing else does: vocals, drums, bass AND the electric guitar all keep playing.' },
-    { id: 'acoustic-only', label: '🪕 Isolate the acoustic guitar', mode: 'acoustic-guitar', remove: false, amount: 0.88, desc: 'The strummed, picked acoustic layer on its own.' },
-    { id: 'keys-off', label: '🎹 Remove the keys', mode: 'keys', remove: true, amount: 0.9, desc: 'Piano and electric piano out of the way.' },
-    { id: 'strings-off', label: '🎻 Remove the strings', mode: 'strings', remove: true, amount: 0.9, desc: 'Take the orchestra out of the pop song.' },
-    { id: 'synth-off', label: '🎛️ Remove the synth', mode: 'synth', remove: true, amount: 0.9, desc: 'Strip the pads and leave the guitars.' },
-    { id: 'guitar-off', label: '🎸 Remove all guitars', mode: 'guitar', remove: true, amount: 0.9, desc: 'Acoustic and electric both, so you can play the whole part yourself.' },
-    { id: 'karaoke-keep-bass', label: '🎤 Classic karaoke (bass kept)', mode: 'classic-keep-bass', remove: true, amount: 0.95, desc: 'The 1990s centre-cancel trick, with the bass protected so the song still has a bottom end.' }
+    { id: 'instrumental', label: '🎤 Reduce vocals', mode: 'vocals', remove: true, amount: 1, desc: 'A practice mix with the estimated vocal stem reduced.' },
+    { id: 'acapella', label: '🎙️ Vocals', mode: 'vocals', remove: false, amount: 1, desc: 'Listen to the estimated vocal stem.' },
+    { id: 'drumless', label: '🥁 Reduce drums', mode: 'drums', remove: true, amount: 1, desc: 'Make room to play along with the beat.' },
+    { id: 'drumsonly', label: '🥁 Drums', mode: 'drums', remove: false, amount: 1, desc: 'Study the estimated drum stem.' },
+    { id: 'bassless', label: '🎸 Reduce bass', mode: 'bass', remove: true, amount: 1, desc: 'Practice over a mix with the estimated bass reduced.' },
+    { id: 'bassonly', label: '🎸 Bass', mode: 'bass', remove: false, amount: 1, desc: 'Follow the estimated bass line.' },
+    { id: 'other-off', label: '🎹 Reduce other instruments', mode: 'other', remove: true, amount: 1, desc: 'Reduce the combined guitar, keys and other-instrument stem.' },
+    { id: 'other-only', label: '🎸 Other instruments', mode: 'other', remove: false, amount: 1, desc: 'Guitars, keys and other sounds together, not separately.' }
   ];
 
   /* ---------------------------------------------------------------- */
@@ -90,7 +69,10 @@
     state.sourceDesc = desc || '';
     if (!els.source) return;
     els.source.hidden = false;
-    els.source.innerHTML = `<b>${name}</b><span>${desc}</span>`;
+    els.source.replaceChildren();
+    const title = document.createElement('b'), detail = document.createElement('span');
+    title.textContent = name; detail.textContent = desc;
+    els.source.append(title, detail);
   }
 
   /* every new take throws the old result away — playing or exporting a previous
@@ -98,6 +80,8 @@
   function clearResult() {
     resetPlayer();
     state.result = null;
+    state.aiStems = null;
+    if (els.stemPicks) els.stemPicks.hidden = true;
     if (els.result) els.result.hidden = true;
     if (els.effect) els.effect.innerHTML = '';
     if (els.btnWav) els.btnWav.disabled = true;
@@ -137,6 +121,8 @@
 
   S.loadFile = async function (file) {
     if (!file) return;
+    if (state.busy && !state.recording) cancel();
+    const generation = ++state.generation;
     if (state.recording) state.recording = false;   /* the take in flight is now unwanted */
     clearResult();
     state.file = file;
@@ -145,6 +131,7 @@
     setStatus('Decoding ' + file.name + '…');
     try {
       const buf = await decodeFile(file);
+      if (generation !== state.generation) return;
       state.buffer = buf;
       state.sr = buf.sampleRate;
       state.channels = [];
@@ -155,6 +142,7 @@
       if (els.btnRun) els.btnRun.disabled = false;
       armPlayer();
     } catch (e) {
+      if (generation !== state.generation) return;
       setStatus('Could not decode that file. Try WAV, MP3 or M4A. (' + (e && e.message ? e.message : 'unknown error') + ')', 'err');
     }
   };
@@ -165,6 +153,8 @@
    * samples in memory. */
   S.loadBuffer = function (buffer, name, sampleRate) {
     if (!buffer) return false;
+    if (state.busy && !state.recording) cancel();
+    state.generation++;
     if (state.recording) state.recording = false;
     let buf = buffer;
     if (typeof buf.getChannelData !== 'function') {
@@ -196,6 +186,8 @@
    * disk — the samples go straight into this tab, ready to be taken apart. */
   S.adopt = function (res, meta) {
     if (!res) return false;
+    if (state.busy && !state.recording) cancel();
+    state.generation++;
     let channels = res.channels;
     if (!channels && res.getChannelData) {
       channels = [];
@@ -298,7 +290,7 @@
   function workerAvailable() {
     try {
       if (typeof Worker !== 'function') return false;
-      if (typeof location !== 'undefined' && location.protocol === 'file:') return false;   /* the APK shell: no worker from file:// */
+      if (typeof location !== 'undefined' && location.protocol === 'file:') return false;   /* module workers require an HTTP(S) origin */
       return true;
     } catch (e) { return false; }
   }
@@ -318,113 +310,93 @@
     setStatus('Stopping…');
   }
 
-  /* Run the DSP in a background thread so the page keeps painting (and the tab
-   * keeps responding) while a whole song is separated. The samples are copied in
-   * and the finished stems are transferred back, so nothing is uploaded. */
-  function runInWorker(mode, remove, amount) {
+  /* Only a real trained model is used here. A failure is reported, not silently
+   * replaced with spectral masking. The worker is killed on stop and on finish. */
+  function runNeural() {
     return new Promise((resolve, reject) => {
-      let url;
-      try { url = new URL('js/stem-worker.js', document.baseURI).href; }
-      catch (e) { url = 'js/stem-worker.js'; }
+      if (!workerAvailable()) { reject(new Error('This browser cannot start the AI worker. Use a current browser or update the app.')); return; }
       let w;
-      try { w = new Worker(url); } catch (e) { reject(e); return; }
-      worker = w;
-      workerReject = reject;
+      try { w = new Worker(new URL('js/ai-stem-worker.mjs', document.baseURI), { type: 'module' }); }
+      catch (e) { reject(new Error('Could not start the AI worker: ' + e.message)); return; }
+      worker = w; workerReject = reject;
       let settled = false;
-      const finish = () => {
-        settled = true;
-        if (worker === w) worker = null;
-        if (workerReject === reject) workerReject = null;
-        try { w.terminate(); } catch (e) {}
-      };
-      w.onmessage = ev => {
-        const msg = ev.data || {};
-        if (msg.type === 'progress') { setProgress(msg.value || 0); return; }
+      const finish = () => { settled = true; if (worker === w) worker = null; if (workerReject === reject) workerReject = null; w.terminate(); };
+      const labels = { library: 'Loading separator…', model: 'Loading and checking the AI model…', runtime: 'Preparing the on-device AI engine…', separating: 'Separating on your device; this may take several minutes…' };
+      w.onmessage = event => {
+        const msg = event.data || {};
         if (settled) return;
+        if (msg.type === 'stage') { setStatus(labels[msg.stage] || 'Preparing…'); return; }
+        if (msg.type === 'progress') { setProgress(Math.max(0, Math.min(0.99, msg.value || 0))); return; }
         finish();
-        if (msg.type === 'done') {
-          resolve({
-            channels: msg.channels.map(b => new Float32Array(b)),
-            sr: msg.sr, mode: msg.mode, remove: msg.remove, amount: msg.amount,
-            slices: msg.slices, peak: msg.peak, gain: msg.gain, worker: true
-          });
-        } else {
-          reject(new Error(msg.message || 'the background separator failed'));
-        }
+        if (msg.type === 'done') resolve(msg.stems);
+        else reject(new Error(msg.message || 'AI separation failed'));
       };
-      w.onerror = ev => {
-        if (settled) return;
-        finish();
-        reject(new Error((ev && ev.message) || 'the background separator could not start'));
+      w.onerror = event => { if (!settled) { finish(); reject(new Error((event && event.message) || 'AI worker could not load')); } };
+      const convert = data => {
+        const result = new Int16Array(data.length);
+        for (let i = 0; i < data.length; i++) result[i] = Math.round(Math.max(-1, Math.min(1, data[i] || 0)) * 32767);
+        return result;
       };
-      const copies = state.channels.map(c => new Float32Array(c));
-      w.postMessage({ type: 'separate', channels: copies, sr: state.sr, mode: mode, remove: remove, amount: amount, keepBass: 0.85 });
+      const left = convert(state.channels[0]);
+      const right = state.channels[1] ? convert(state.channels[1]) : left;
+      w.postMessage({ left, right, sampleRate: state.sr }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
     });
   }
 
-  async function separateNow(mode, remove, amount) {
-    /* the worker first: the fallback below is the same engine, in-page */
-    if (workerAvailable()) {
-      try {
-        return await runInWorker(mode, remove, amount);
-      } catch (e) {
-        if (state.cancel) { const err = new Error('stopped'); err.aborted = true; throw err; }
-        setStatus('The background separator did not start (' + (e && e.message ? e.message : 'unknown error') + ') — separating in the page instead.');
-        await new Promise(r => setTimeout(r, 30));
+  function mixSelected() {
+    const target = state.aiStems && state.aiStems[state.mode];
+    if (!target) throw new Error('The model did not return the requested stem.');
+    const n = target[0].length;
+    const channels = [new Float32Array(n), new Float32Array(n)];
+    let peak = 0;
+    for (let c = 0; c < 2; c++) {
+      const source = state.channels[c] || state.channels[0], stem = target[c] || target[0];
+      for (let i = 0; i < n; i++) {
+        const estimated = stem[i] / 32768;
+        const value = state.remove ? (source[i] || 0) - state.amount * estimated : state.amount * estimated;
+        channels[c][i] = value;
+        peak = Math.max(peak, Math.abs(value));
       }
     }
-    return TT.dsp.separateChunked(state.channels, state.sr, mode, {
-      remove: remove, amount: amount, keepBass: 0.85,
-      shouldAbort: () => state.cancel,
-      onProgress: f => setProgress(f)
-    });
+    const gain = peak > 1 ? 1 / peak : 1;
+    if (gain < 1) channels.forEach(channel => { for (let i = 0; i < n; i++) channel[i] *= gain; });
+    state.result = { channels, sr: state.sr, mode: state.mode, remove: state.remove, amount: state.amount, peak, gain, worker: true, engine: 'SCNet AI' };
+    setProgress(1);
+    if (els.effect) els.effect.textContent = (state.remove ? 'Reduced: ' : 'Estimated stem: ') + PROFILE_LABEL[state.mode] + '. The four stems are AI estimates and may contain bleed or artifacts.' + (gain < 1 ? ' Output was reduced to prevent clipping.' : '');
+    setStatus('Ready. Choose any stem or recipe without running the model again; play, loop or save this mix as WAV.', 'ok');
+    armPlayer();
+    if (els.stemPicks) els.stemPicks.hidden = false;
   }
 
   S.run = async function () {
     if (!state.channels || !state.channels.length) { setStatus('Load a song first.', 'err'); return; }
     if (state.busy) return;
-    state.busy = true;
-    state.cancel = false;
+    state.busy = true; state.cancel = false;
+    const generation = state.generation;
     if (els.btnRun) els.btnRun.disabled = true;
     if (els.btnCancel) els.btnCancel.hidden = false;
-    const mode = state.mode, remove = state.remove, amount = state.amount;
-    const isClassic = mode === 'classic-karaoke' || mode === 'classic-keep-bass';
-    setStatus(`Separating — ${PROFILE_LABEL[mode] || mode}, ${remove ? 'removed' : 'isolated'}… (long songs are processed in slices, so the page stays alive)`);
-    setProgress(0);
-    await new Promise(r => setTimeout(r, 30));
     try {
-      const res = await separateNow(mode, remove, amount);
-      state.result = res;
-      const mins = state.buffer ? state.buffer.duration / 60 : 0;
-      const levelled = res && res.gain && res.gain < 0.999
-        ? ` It was a hot take (peak ${res.peak.toFixed(2)}), so it has been levelled by ${(20 * Math.log10(res.gain)).toFixed(1)} dB — nothing clips.`
-        : '';
-      setStatus(`Done — ${mmss(res.channels[0].length / res.sr)} of audio, ${res.slices > 1 ? res.slices + ' slices, ' : ''}${Math.round(mins * 60)}s source. Press play, or save it as a WAV.${levelled}`, 'ok');
-      if (els.effect) {
-        els.effect.innerHTML = isClassic
-          ? `<b>Classic karaoke.</b> Everything that is identical in both channels is cancelled — which is exactly where a lead vocal lives. ${mode === 'classic-keep-bass' ? 'The low end is left alone so the song keeps its bottom.' : 'The result is mono, like a 1990s karaoke machine.'}`
-          : `<b>${PROFILE_LABEL[mode] || mode}: ${remove ? 'removed' : 'isolated'}.</b> The engine built a sustained-content spectrogram (a per-bin median over time), a transient map (how far each frame sits above that median) and a centre/side split, then weighed them per frequency band for this instrument. ${mode === 'acoustic-guitar' ? 'The acoustic profile leans hard on the sustained, wide, mid-band content, so the electric guitar and the drums stay where they are.' : ''}`;
+      if (!state.aiStems) {
+        setStatus('Preparing on-device AI separation…'); setProgress(0);
+        const stems = await runNeural();
+        if (state.cancel || generation !== state.generation) return;
+        for (const name of Object.keys(PROFILE_LABEL)) {
+          if (!stems[name] || !stems[name][0] || stems[name][0].length !== state.channels[0].length) throw new Error('The model returned an incomplete ' + name + ' stem.');
+        }
+        state.aiStems = stems;
+        if (TT.store) {
+          const log = TT.store.get('stemHistory', []);
+          log.unshift({ mode: state.mode, remove: state.remove, amount: state.amount, name: state.sourceName || 'audio', at: Date.now() });
+          TT.store.set('stemHistory', log.slice(0, 20)); renderHistory();
+        }
       }
-      if (els.amountShow) els.amountShow.textContent = Math.round(amount * 100) + '%';
-      armPlayer();
-      if (TT.store) {
-        const log = TT.store.get('stemHistory', []);
-        log.unshift({ mode: mode, remove: remove, amount: amount, name: state.sourceName || (state.file ? state.file.name : 'microphone'), at: Date.now() });
-        TT.store.set('stemHistory', log.slice(0, 20));
-        renderHistory();
-      }
-      if (TT.app && TT.app.assist) TT.app.assist('Stem lab: ' + (PROFILE_LABEL[mode] || mode) + (remove ? ' removed' : ' isolated') + ' — ' + (isClassic ? 'centre-cancel' : 'spectral + transient masking') + '.');
+      mixSelected();
     } catch (e) {
-      if (e && e.aborted) {
-        setStatus('Stopped. Nothing was changed — press ⚙️ Separate it to run it again.', '');
-        setProgress(0);
-      } else {
-        setStatus('Separation failed: ' + (e && e.message ? e.message : 'unknown error'), 'err');
-      }
+      if (state.cancel || (e && e.aborted)) { setStatus('Stopped. Your song is still loaded.', ''); setProgress(0); }
+      else setStatus('AI separation failed: ' + (e && e.message ? e.message : 'unknown error') + '. Try a shorter file or a device with more memory.', 'err');
     } finally {
-      state.busy = false;
-      worker = null;
-      if (els.btnRun) els.btnRun.disabled = false;
+      state.busy = false; worker = null; workerReject = null;
+      if (els.btnRun) els.btnRun.disabled = !state.channels;
       if (els.btnCancel) els.btnCancel.hidden = true;
     }
   };
@@ -830,7 +802,8 @@
       vol: document.getElementById('st-vol'),
       loop: document.getElementById('st-loop'),
       history: document.getElementById('st-history'),
-      notes: document.getElementById('st-notes')
+      notes: document.getElementById('st-notes'),
+      stemPicks: document.getElementById('st-stem-picks')
     };
     if (els.file) els.file.addEventListener('change', e => { if (e.target.files && e.target.files[0]) S.loadFile(e.target.files[0]); });
     if (els.drop) {
@@ -947,23 +920,17 @@
     window.addEventListener('resize', () => { wave.key = ''; drawStatic(); });
     syncTransport();
     if (els.mode) {
-      Object.keys(TT.dsp.PROFILES).forEach(k => {
-        const o = document.createElement('option');
-        o.value = k; o.textContent = PROFILE_LABEL[k] || k;
-        els.mode.appendChild(o);
-      });
-      ['classic-karaoke', 'classic-keep-bass'].forEach(k => {
-        const o = document.createElement('option');
-        o.value = k; o.textContent = k === 'classic-karaoke' ? 'Classic karaoke (centre cancel)' : 'Classic karaoke, bass kept';
-        els.mode.appendChild(o);
+      Object.keys(PROFILE_LABEL).forEach(k => {
+        const o = document.createElement('option'); o.value = k; o.textContent = PROFILE_LABEL[k]; els.mode.appendChild(o);
       });
       els.mode.value = state.mode;
-      els.mode.addEventListener('change', () => { state.mode = els.mode.value; });
+      els.mode.addEventListener('change', () => { state.mode = els.mode.value; if (state.aiStems && !state.busy) mixSelected(); });
     }
     if (els.actionSeg) {
       els.actionSeg.querySelectorAll('.seg-btn').forEach(b => b.addEventListener('click', () => {
         state.remove = b.dataset.action === 'remove';
         syncActionSeg();
+        if (state.aiStems && !state.busy) mixSelected();
       }));
       syncActionSeg();
     }
@@ -974,12 +941,11 @@
         state.amount = Math.max(0, Math.min(1, (+els.amount.value) / 100));
         els.amountShow.textContent = Math.round(state.amount * 100) + '%';
       });
+      els.amount.addEventListener('change', () => { if (state.aiStems && !state.busy) mixSelected(); });
     }
     if (els.btnRun) els.btnRun.addEventListener('click', S.run);
     if (els.btnCancel) els.btnCancel.addEventListener('click', cancel);
-    if (els.runNote) els.runNote.textContent = workerAvailable()
-      ? 'Runs in a background thread — the tab stays responsive while a whole song is separated.'
-      : 'Processed in slices so the page stays alive; a long song takes about half its length.';
+    if (els.runNote) els.runNote.textContent = 'First web run downloads the AI engine and model (~23 MB); processing can take minutes and substantial memory.';
     if (els.btnWav) els.btnWav.addEventListener('click', downloadWav);
     if (els.btnTab) els.btnTab.addEventListener('click', analyseStem);
     if (els.vol) els.vol.addEventListener('input', () => { if (state.gain) state.gain.gain.value = +els.vol.value; });
@@ -990,7 +956,7 @@
     if (els.presets) {
       PRESETS.forEach(p => {
         const b = document.createElement('button');
-        b.className = 'st-preset' + (p.mode === 'acoustic-guitar' && p.remove ? ' highlight' : '');
+        b.className = 'st-preset';
         b.type = 'button';
         b.innerHTML = `<b>${p.label}</b><span>${p.desc}</span>`;
         b.addEventListener('click', () => {
@@ -1005,15 +971,20 @@
         els.presets.appendChild(b);
       });
     }
+    if (els.stemPicks) els.stemPicks.querySelectorAll('[data-stem]').forEach(button => button.addEventListener('click', () => {
+      state.mode = button.dataset.stem; state.remove = false; state.amount = 1;
+      if (els.mode) els.mode.value = state.mode;
+      if (els.amount) els.amount.value = '100';
+      if (els.amountShow) els.amountShow.textContent = '100%';
+      syncActionSeg(); mixSelected();
+    }));
     if (els.notes) {
       els.notes.innerHTML = `
-        <li><b>It is real DSP, not a server.</b> The separation runs here, in your browser, on the samples themselves — your song is never uploaded.</li>
-        <li><b>How it decides.</b> Sustained content is estimated as a per-bin median over time; transients are how far a frame sits above that; the centre/side split separates what both channels share from what is spread wide. Each instrument profile is a band-limited weighting of those three.</li>
-        <li><b>Acoustic vs electric.</b> The acoustic-guitar profile targets the wide, sustained 150–5600 Hz band with a strong transient tolerance, so a strummed acoustic part goes and a distorted, narrow, centre-panned electric part — and the drums — stay.</li>
-        <li><b>The honest limit.</b> When two instruments occupy exactly the same band, the same stereo position and the same envelope, no offline method can pull them apart perfectly. That is why every recipe has an <i>amount</i> control: turn it down until the artefact is inaudible rather than fighting for 100%.</li>
-        <li><b>Microphone input.</b> You can play a song out loud and capture 20 seconds to work on — the button asks for the microphone itself and shows the take as it records, so it works whether or not the tuner is already listening. Useful for a riff or a chorus you want to loop and play over.</li>
-        <li><b>Listen with a map.</b> The result has a waveform with a clock: click or drag anywhere to skip through it, drag the ⟦ A and Set B ⟧ handles (or press <kbd>[</kbd> and <kbd>]</kbd>) to fence off a section, and “Loop the section” plays just that part round and round — handy for learning a riff. With nothing set it loops the whole take.</li>
-        <li><b>Other views can send audio here.</b> The backing studio's “Send it to the Stem lab” button drops its render straight into this tab — no download, no re-upload.</li>`;
+        <li><b>Four real AI estimates.</b> SCNet predicts vocals, drums, bass and other instruments from the mix on this device. No song audio is uploaded.</li>
+        <li><b>Not the original tracks.</b> Stems can contain bleed and artifacts. Guitar and keys share “other”; acoustic and electric guitars cannot be reliably isolated from each other.</li>
+        <li><b>Model and memory.</b> The web version downloads about 23 MB once, then can use the cached files offline. The compact model can still require substantial memory and minutes of processing. The Android package includes the files.</li>
+        <li><b>Reduce or isolate.</b> Reducing subtracts a scaled estimate from the original mix. Isolating plays the estimate. Each result can be previewed, looped and exported as WAV.</li>
+        <li><b>Room recording and loops.</b> Record 20 seconds, or load a file; drag on the waveform or set A and B to repeat a section. The backing studio can also send a render here.</li>`;
     }
     renderHistory();
   };

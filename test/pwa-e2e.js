@@ -9,8 +9,8 @@
  *   4. the APK share card: QR code + link to /download/trill-tuner.apk, which
  *      the app hosts itself (bytes identical to the built APK, range requests)
  *   5. the remote tuner: two pages sync live over LAN sessions (SSE)
- *   6. the APK shell simulation: the app loaded over file:// — exactly how the
- *      Android WebView loads it (no server, no service worker, no bridge)
+ *   6. a legacy file:// shell smoke check (current APK uses a secure bundled origin;
+ *      Android device behavior is not established by this browser check)
  *   7. a mobile viewport: no overflow, stacked cards, tap-friendly controls,
  *      the tuner works at phone size
  *   8. speed: boot time and mic-to-detection latency are measured, not assumed
@@ -20,6 +20,14 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const puppeteer = require('puppeteer');
+
+async function ensureMic(page) {
+  await page.waitForFunction(() => window.TT && TT.audio && TT.audio.micState !== 'requesting', { timeout: 12000 });
+  if (await page.evaluate(() => TT.audio.micState !== 'on')) {
+    await page.evaluate(() => TT.tuner.startMic());
+    await page.waitForFunction(() => TT.audio.micState === 'on', { timeout: 12000 });
+  }
+}
 
 const BASE = 'http://localhost:3000';
 const DIR = __dirname;
@@ -45,7 +53,10 @@ async function launch(wav) {
   await page.setViewport({ width: 1400, height: 950 });
   page._errors = [];
   page.on('pageerror', e => page._errors.push('pageerror: ' + e.message));
-  page.on('console', m => { if (m.type() === 'error') page._errors.push('console: ' + m.text()); });
+  page.on('console', m => {
+    // The WASM runtime prints this known CPU-identification warning via console.error.
+    if (m.type() === 'error' && !/\[W:onnxruntime:Default, cpuid_info\.cc:91 LogEarlyWarning\] Unknown CPU vendor/.test(m.text())) page._errors.push('console: ' + m.text());
+  });
   return { browser, page };
 }
 
@@ -187,7 +198,7 @@ const TOUR_N = TOUR.length;
     ok(offline.swController, 'offline reload: page controlled by the service worker');
 
     /* the tuner itself must work with zero network */
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const tuned = await waitFor(page, () => {
       const n = document.getElementById('note-detected').textContent;
       return n === 'E' && document.querySelector('#view-tune .wave-card').classList.contains('in-tune');
@@ -424,7 +435,7 @@ const TOUR_N = TOUR.length;
     const { browser, page: host } = await launch('e2_in_tune.wav');
     await host.goto(BASE, { waitUntil: 'networkidle0' });
     await dismissSplashAndDemo(host);
-    await host.click('#btn-mic-start');
+    await ensureMic(host);
     const hostTuned = await waitFor(host, () => {
       return document.getElementById('note-detected').textContent === 'E'
         && document.querySelector('#view-tune .wave-card').classList.contains('in-tune');
@@ -455,7 +466,7 @@ const TOUR_N = TOUR.length;
     /* the mic auto-starts when the profile already granted it (same origin as
      * the host page here) — otherwise start it by hand */
     const joinerMicAuto = await joiner.evaluate(() => document.getElementById('mic-controls').hidden);
-    if (!joinerMicAuto) await joiner.click('#btn-mic-start');
+    if (!joinerMicAuto) await ensureMic(joiner);
     const joinerTuned = await waitFor(joiner, () => {
       return document.getElementById('note-detected').textContent === 'E'
         && document.querySelector('#view-tune .wave-card').classList.contains('in-tune');
@@ -500,7 +511,7 @@ const TOUR_N = TOUR.length;
   }
 
   /* ==================== 6. APK shell simulation — file:// like the WebView ==================== */
-  console.log('\n== 6. APK shell (file:// — how the Android WebView loads the app) ==');
+  console.log('\n== 6. legacy file:// shell smoke (not an Android device test) ==');
   {
     const browser = await puppeteer.launch({
       args: [
@@ -516,22 +527,25 @@ const TOUR_N = TOUR.length;
     await page.setViewport({ width: 1400, height: 950 });
     page._errors = [];
     page.on('pageerror', e => page._errors.push('pageerror: ' + e.message));
-    page.on('console', m => { if (m.type() === 'error') page._errors.push('console: ' + m.text()); });
+    page.on('console', m => {
+    // The WASM runtime prints this known CPU-identification warning via console.error.
+    if (m.type() === 'error' && !/\[W:onnxruntime:Default, cpuid_info\.cc:91 LogEarlyWarning\] Unknown CPU vendor/.test(m.text())) page._errors.push('console: ' + m.text());
+  });
     await page.goto('file://' + path.join(DIR, '..', 'public', 'index.html'), { waitUntil: 'domcontentloaded' });
     const boot = await waitFor(page, () => window.TT && TT.app && TT.app.showView
       && document.querySelectorAll('.nav-btn').length === 19, 10000, 'app boots on file://');
-    ok(boot, 'file:// (APK shell): the app boots, all 19 nav buttons render');
+    ok(boot, 'file:// (legacy shell smoke): the app boots, all 19 nav buttons render');
     await dismissSplashAndDemo(page);
     ok(await page.evaluate(() => !('serviceWorker' in navigator) || !navigator.serviceWorker.controller),
       'file://: no service worker controls the page (registration correctly skipped)');
 
     /* the tuner must work exactly as it will inside the APK */
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const tuned = await waitFor(page, () => {
       return document.getElementById('note-detected').textContent === 'E'
         && document.querySelector('#view-tune .wave-card').classList.contains('in-tune');
     }, 12000, 'file:// tuner in tune');
-    ok(tuned, 'file:// (APK shell): the tuner detects the in-tune low E — mic works in the WebView context');
+    ok(tuned, 'file:// (legacy shell smoke): the tuner detects the in-tune low E — mic works in the WebView context');
 
     /* hosting a session needs the served web version — degrade gracefully */
     await page.click('#btn-remote-host');
@@ -656,7 +670,7 @@ const TOUR_N = TOUR.length;
     ok(demoFit.fits, 'mobile: the demo card fits the phone screen', demoFit.w + 'px wide');
     await page.click('#demo-skip');
     /* the tuner works at phone size */
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const tuned = await waitFor(page, () => {
       return document.getElementById('note-detected').textContent === 'E'
         && document.querySelector('#view-tune .wave-card').classList.contains('in-tune');
@@ -678,7 +692,7 @@ const TOUR_N = TOUR.length;
     ok(booted && bootMs < 8000, 'app boots fast', bootMs + ' ms (19 views wired)');
     await dismissSplashAndDemo(page);
     const t1 = Date.now();
-    await page.click('#btn-mic-start');
+    await ensureMic(page);
     const detected = await waitFor(page, () => {
       return document.getElementById('note-detected').textContent.length === 1
         && document.getElementById('note-detected').textContent !== '–';
@@ -942,7 +956,7 @@ const TOUR_N = TOUR.length;
       'stem lab: the backing bed arrives ready to separate', handoff.status.slice(0, 70));
 
     /* and the room recording opens the microphone by itself (shortened take) */
-    await page.evaluate(() => { TT.stems.state.recordSeconds = 1; });
+    const micBeforeTake = await page.evaluate(() => { TT.stems.state.recordSeconds = 1; return TT.audio.micState; });
     await page.click('#st-btn-mic');
     const recStatus = await waitFor(page, () => /Recording/.test(document.getElementById('st-status').textContent), 12000, 'recording');
     ok(recStatus, 'stem lab: the record button asks for the microphone and starts recording');
@@ -954,7 +968,7 @@ const TOUR_N = TOUR.length;
       enabled: !document.getElementById('st-btn-run').disabled
     }));
     ok(recDone && take.ch >= 1 && take.enabled, 'stem lab: the take is loaded and ready to separate', take.seconds + ' s, mic now ' + take.mic);
-    ok(take.mic !== 'on', 'stem lab: the microphone is released after the recording');
+    ok(take.mic === micBeforeTake, 'stem lab: recording restores the prior microphone state', micBeforeTake + ' → ' + take.mic);
     ok(page._errors.length === 0, 'stem lab: zero JS errors', page._errors.slice(0, 3).join(' | '));
     await browser.close();
   }

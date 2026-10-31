@@ -14,7 +14,7 @@
   /* Every section, one by one. `view` is switched to, `tab` (if any) is
    * activated inside that view, and `target` gets the spotlight. */
   const STEPS = [
-    { view: 'tune', target: '#btn-mic-start', title: 'Welcome to Trill Tuner 🎸',
+    { view: 'tune', target: '#btn-mic-start', title: 'Welcome to the tuner 🎸',
       text: 'This is the tuner. Everything runs on your device — pitch detection, chords, stems, all of it. Press “Start listening”, allow the mic, and play your low E: the wave turns green when you are in tune.' },
     { view: 'tune', target: '#wave-canvas', title: 'The live wave & the big notes',
       text: 'The wave is your string vibrating. On the left, the note you are playing; on the right, the note you are aiming for. The cents readout underneath tells you how far off you are.' },
@@ -41,7 +41,7 @@
     { view: 'maker', target: '#view-maker .card', title: 'Tab maker — it listens to the song',
       text: 'Drop in any audio file and the tab maker works out the chords, the key, the tempo and the capo by listening — then hands you a play-along chart.' },
     { view: 'stems', target: '#view-stems .card', title: 'Stem lab — take the mix apart',
-      text: 'Remove or isolate vocals, drums, bass, electric or acoustic guitar from any track — including an acoustic-only chop that leaves the electric and the kit playing.' },
+      text: 'On-device AI estimates vocals, drums, bass and other instruments. Listen, reduce or export each stem; guitar and keys remain together and artifacts are possible.' },
     { view: 'backing', target: '#view-backing .card', title: 'Backing studio',
       text: 'Generate a practice bed in any key and feel — chords, bass, drums and more — and play along with a band that never gets tired.' },
     { view: 'listening', target: '#view-listening .card', title: 'Live listener',
@@ -67,11 +67,11 @@
     { view: 'mine', target: '#view-mine .card', title: 'My stuff',
       text: 'Favourites, saved rigs and tunings, and a session builder that turns your songs into a practice set — all saved on this device.' },
     { view: 'progress', target: '#apk-qr', title: 'Progress, sharing & the Android app',
-      text: 'Your stats and achievements, a shareable progress card, backups you can export and import — and the QR code for the Trill Tuner Android app, hosted by this app itself. Scan it with another phone to install.' },
+      text: 'Your stats and achievements, a shareable progress card, backups you can export and import — and the QR code for the Android app, hosted by this app itself. Scan it with another phone to install.' },
     { view: 'care', target: '#view-care .card', title: 'Guitar care',
       text: 'String health, an intonation worksheet and an environment monitor — log string changes and keep the neck happy where you live.' },
     { view: 'tune', target: '#btn-install', title: 'Install & go fully offline ⏬',
-      text: 'Install Trill Tuner as an app (or grab the APK from the Progress tab): after the first load, every feature works with no connection at all. Enjoy the studio! 🎸' }
+      text: 'Install the app (or grab the APK from the Progress tab): most tools work offline; the AI model is cached after first use and the community leaderboard requires a connection. Enjoy the studio! 🎸' }
   ];
 
   function store() { return (window.TT && TT.store) ? TT.store : null; }

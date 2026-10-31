@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const D = require('../public/js/lib/dsp.js');
 const C = require('../public/js/lib/catalog.js');
 const T = require('../public/js/lib/chords.js');
@@ -152,103 +153,26 @@ function kept(out, src) {
     ' chords · ' + plan.progressions.length + ' progressions · ' + plan.capoNote);
 })();
 
-/* ---------------------------------------------------------------- */
-/* 3. vocal removal                                                  */
-/* ---------------------------------------------------------------- */
+/* AI stem controls and limitations. The real browser inference test is
+ * separate (test:ai); static checks here do not claim audio quality. */
 (function () {
-  const n = SR * 5;
-  const L = new Float32Array(n), R = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / SR;
-    const vocal = 0.25 * Math.sin(TAU * 220 * t);
-    const guitarL = 0.14 * Math.sin(TAU * 196 * t);
-    const guitarR = 0.14 * Math.sin(TAU * 246.9 * t);
-    L[i] = vocal + guitarL;
-    R[i] = vocal + guitarR;
-  }
-  const mix = [new Float32Array(n), new Float32Array(n)];
-  for (let i = 0; i < n; i++) { mix[0][i] = L[i]; mix[1][i] = R[i]; }
-  const vocalOnly = [new Float32Array(n), new Float32Array(n)];
-  const guitarOnly = [new Float32Array(n), new Float32Array(n)];
-  for (let i = 0; i < n; i++) {
-    vocalOnly[0][i] = vocalOnly[1][i] = 0.25 * Math.sin(TAU * 220 * i / SR);
-    guitarOnly[0][i] = 0.14 * Math.sin(TAU * 196 * i / SR);
-    guitarOnly[1][i] = 0.14 * Math.sin(TAU * 246.9 * i / SR);
-  }
-  /* the mixture the two layers actually make */
-  for (let c = 0; c < 2; c++) for (let i = 0; i < n; i++) mix[c][i] = vocalOnly[c][i] + guitarOnly[c][i];
-  const mask = D.separate(mix, SR, 'vocals', { remove: true, amount: 1 });
-  const karaoke = D.separate(mix, SR, 'classic-karaoke', {});
-  const mV = kept(mask, vocalOnly), mG = kept(mask, guitarOnly);
-  const kV = kept(karaoke, vocalOnly), kG = kept(karaoke, guitarOnly);
-  const recipes = read('public/js/stemlab.js');
-  const offered = /karaoke/i.test(recipes) && /instrumental/i.test(recipes) && /classic-karaoke/.test(recipes);
-  item(3, 'Vocal removal (and the instrumental that results)',
-    'both offered paths measured on a centred voice over a double-tracked guitar: the spectral mask, and the classic centre-cancellation',
-    offered && (mV < -12 || kV < -12) && mG > -6 && kG > -6,
-    'spectral mask: voice ' + mV.toFixed(1) + ' dB, guitar ' + mG.toFixed(1) + ' dB · classic centre-cancel: voice ' +
-    kV.toFixed(1) + ' dB, guitar ' + kG.toFixed(1) + ' dB · both offered in the lab: ' + (offered ? 'yes' : 'no'));
-})();
-
-/* ---------------------------------------------------------------- */
-/* 4. separate instrument remover                                    */
-/* ---------------------------------------------------------------- */
-(function () {
-  const n = SR * 2;
-  const L = new Float32Array(n), R = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / SR;
-    L[i] = 0.2 * Math.sin(TAU * 110 * t) + 0.2 * Math.sin(TAU * 440 * t) + 0.1 * Math.sin(TAU * 3000 * t);
-    R[i] = L[i] * 0.9;
-  }
-  const modes = Object.keys(D.PROFILES);
-  const both = modes.every(m => {
-    try {
-      const rm = D.separate([L, R], SR, m, { remove: true, amount: 0.8 });
-      const iso = D.separate([L, R], SR, m, { remove: false, amount: 0.8 });
-      return rm.channels[0].length === n && iso.channels[0].length === n;
-    } catch (e) { return false; }
-  });
-  const recipes = (read('public/js/stemlab.js').match(/\{ id: '/g) || []).length;
-  const ui = ['st-mode', 'st-action', 'st-amount', 'st-btn-run'].every(id => read('public/index.html').indexOf('id="' + id + '"') > 0);
-  item(4, 'Separate instrument remover — every instrument, remove or isolate',
-    'all ' + modes.length + ' dsp profiles run in both directions; the Stem lab exposes mode + action + amount',
-    both && ui && modes.length >= 12,
-    modes.length + ' instruments × 2 directions all render · ' + recipes + ' recipes in the lab · controls: ' + (ui ? 'ok' : 'missing'));
-})();
-
-/* ---------------------------------------------------------------- */
-/* 5. instrumental maker from a chosen song                          */
-/* ---------------------------------------------------------------- */
-(function () {
-  const lab = read('public/js/stemlab.js');
-  const classic = /classic-karaoke/.test(lab) && /keepBass|keep-bass/.test(read('public/js/lib/dsp.js'));
+  const lab = read('public/js/stemlab.js'), worker = read('public/js/ai-stem-worker.mjs');
+  const model = fs.readFileSync(path.join(root, 'public/models/scnet-compact/scnet-f120.int8.onnx'));
+  const hash = crypto.createHash('sha256').update(model).digest('hex');
+  const pinned = hash === '3a926ef9710754f8bc04b3ded790ac6a0ac10465ca06a50e367382deed53d180';
+  item(3, 'Reduce vocals with on-device AI', 'pinned model, worker and vocal-reduction control; actual inference is checked by test:ai',
+    pinned && /runNeural/.test(lab) && /separateInBlocks/.test(worker) && /instrumental/.test(lab),
+    'SCNet weights integrity: ' + (pinned ? 'verified' : 'failed') + ' · vocal reduction is an estimate; real inference: npm run test:ai');
+  const modes = ['vocals', 'drums', 'bass', 'other'].every(name => lab.includes(name + ':'));
+  const controls = ['st-mode', 'st-action', 'st-amount', 'st-btn-run'].every(id => has('public/index.html', 'id="' + id + '"'));
+  item(4, 'Four estimated stems, reduce or isolate', 'model targets and controls checked; estimates are not original tracks',
+    modes && controls && /mixSelected/.test(lab), 'vocals · drums · bass · other · reduce/keep/amount controls');
   const bed = B.render({ key: 'C', mode: 'major', style: 'strum', bpm: 90, bars: 4, sr: SR });
-  const bedOk = bed.channels[0].length > SR * 10 && bed.progression.length === 4;
-  item(5, 'Instrumental maker from a chosen song',
-    'the karaoke recipe turns a song into an instrumental (with a bass-keeping variant); the Backing studio can also build an instrumental from scratch',
-    classic && bedOk,
-    'karaoke recipes: ' + (classic ? 'present' : 'missing') + ' · backing studio renders an instrumental bed of ' +
-    bed.seconds.toFixed(1) + 's (' + bed.progression.join(' ') + ') that the tab maker can read back');
-})();
-
-/* ---------------------------------------------------------------- */
-/* 6. acoustic-guitar-only removal, electric + drums survive         */
-/* ---------------------------------------------------------------- */
-(function () {
-  const band = bandMix(SR, 6);
-  const rm = D.separate(band.mix, SR, 'acoustic-guitar', { amount: 0.9, remove: true });
-  const a = kept(rm, band.acoustic), e = kept(rm, band.electric), d = kept(rm, band.drums);
-  const iso = D.separate(band.mix, SR, 'acoustic-guitar', { amount: 0.9, remove: false });
-  const isoA = kept(iso, band.acoustic), isoE = kept(iso, band.electric);
-  const lab = read('public/js/stemlab.js');
-  const flagged = /acoustic-guitar/.test(lab) && /remove: true/.test(lab) && /electric/i.test(lab);
-  item(6, 'Remove ONLY the acoustic guitar — every other instrument and the drums keep playing, electric included',
-    'the acoustic-guitar profile on a synthesised band (strummed acoustic + vibratoed held electric + kit), measured per layer per channel; the lab highlights the recipe',
-    a < -2.5 && (e - a) > 2 && e > -3 && d > -3 && flagged,
-    'acoustic ' + a.toFixed(2) + ' dB (removed) · electric ' + e.toFixed(2) + ' dB (kept) · drums ' + d.toFixed(2) +
-    ' dB (kept) — margin ' + (e - a).toFixed(2) + ' dB in favour of the electric · isolate leans the right way (' +
-    isoA.toFixed(2) + ' vs ' + isoE.toFixed(2) + ' dB) · recipe highlighted: ' + (flagged ? 'yes' : 'no'));
+  item(5, 'Create an instrumental practice mix', 'vocal-reduction recipe and separate backing-studio renderer',
+    /instrumental/.test(lab) && bed.channels[0].length > SR * 10, 'vocal reduction is approximate · backing studio rendered ' + bed.seconds.toFixed(1) + ' seconds');
+  item(6, 'Acoustic/electric separation limitation disclosed', 'a four-stem model does not distinguish individual guitars',
+    /cannot be reliably isolated/.test(lab) && !/mode: 'acoustic-guitar'/.test(lab),
+    'guitars and keys remain together in “other”; exact acoustic-only removal is not offered');
 })();
 
 /* ---------------------------------------------------------------- */
@@ -377,13 +301,13 @@ function kept(out, src) {
   const perms = ['INTERNET', 'RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'ACCESS_NETWORK_STATE', 'VIBRATE',
     'ACCESS_WIFI_STATE', 'WAKE_LOCK', 'POST_NOTIFICATIONS', 'READ_MEDIA_AUDIO', 'BLUETOOTH_CONNECT']
     .every(p => man.indexOf('android.permission.' + p) > 0);
-  item(12, 'An Android app version of the whole thing — named Trill Tuner, correct permissions, built and working',
+  item(12, 'Android APK build and permissions',
     'public/downloads/TrillTuner.apk is a real signed APK (zip entries + v1/v2/v3 signatures verified by test/apk-test.js and test/apk-verify.py); the shell source lives in apk-src/ (manifest + smali) and tools/build-apk.py rebuilds it without an SDK',
     exists && size > 200 * 1024 && zipHas('AndroidManifest.xml') && zipHas('classes.dex') && zipHas('resources.arsc')
       && zipHas('assets/index.html') && zipHas('META-INF/') && man.indexOf('package="com.trilltuner.app"') > 0
       && man.indexOf('android:label="Trill Tuner"') > 0 && perms && smali
       && fs.existsSync(path.join(root, 'tools', 'build-apk.py')),
-    'APK ' + (size / 1024).toFixed(0) + ' KB · package com.trilltuner.app · label “Trill Tuner” · minSdk 24 / targetSdk 34 · mic + wifi + storage + bluetooth + notifications · 4 smali shell classes · signed v1+v2+v3 (apksigner verify) · deep-checked by test/apk-test.js + test/apk-verify.py');
+    'APK ' + (size / 1024).toFixed(0) + ' KB · package com.trilltuner.app · label “Trill Tuner” · minSdk 24 / targetSdk 34 · mic + wifi + storage + bluetooth + notifications · 4 smali shell classes · signed v1+v2+v3 (apksigner verify) · structurally checked by test/apk-test.js + test/apk-verify.py; physical-device behavior not checked here');
 })();
 
 /* ---------------------------------------------------------------- */
@@ -399,15 +323,15 @@ function kept(out, src) {
   const icons = ['public/icons/icon-192.png', 'public/icons/icon-512.png',
     'public/icons/icon-maskable-512.png', 'public/icons/apple-touch-icon.png']
     .every(f => fs.existsSync(path.join(root, f)));
-  item(13, 'The web version remains and becomes a PWA — 100% offline after the first load',
-    'manifest.webmanifest (standalone, icons) + sw.js (precache-all, navigation fallback, skipWaiting) + PWA meta in index.html; the offline reload itself is proven in test/pwa-e2e.js (network cut, tuner still detects in-tune)',
+  item(13, 'PWA shell works offline; AI is cached after its first use',
+    'manifest.webmanifest (standalone, icons) + sw.js (shell precache, navigation fallback, skipWaiting) + PWA meta in index.html; the offline reload itself is proven in test/pwa-e2e.js (network cut, tuner still detects in-tune)',
     man.name === 'Trill Tuner' && man.display === 'standalone' && man.icons.length >= 3
       && sw.indexOf('cache.addAll') > 0 && sw.indexOf('caches.match') > 0 && sw.indexOf('skipWaiting') > 0
       && head.indexOf('rel="manifest"') > 0 && head.indexOf('name="theme-color"') > 0
       && metaTheme.toLowerCase() === String(man.theme_color).toLowerCase()
       && head.indexOf('apple-mobile-web-app-capable') > 0 && head.indexOf('viewport-fit=cover') > 0
       && icons && fs.existsSync(path.join(root, 'test', 'pwa-e2e.js')),
-    'manifest “' + man.name + '” standalone · ' + man.icons.length + ' icons · sw precaches the app, falls back to the cached shell offline · theme ' + man.theme_color + ' (meta agrees) · mobile viewport · offline E2E green');
+    'manifest “' + man.name + '” standalone · ' + man.icons.length + ' icons · sw precaches the app, falls back to the cached shell offline · theme ' + man.theme_color + ' (meta agrees) · mobile viewport · network features remain online-only');
 })();
 
 /* ---------------------------------------------------------------- */
@@ -452,10 +376,13 @@ function kept(out, src) {
 /* ---------------------------------------------------------------- */
 (function () {
   const check = async () => {
+    const testServer = require('../server').server;
+    await new Promise(resolve => testServer.listen(0, '127.0.0.1', resolve));
+    const base = 'http://127.0.0.1:' + testServer.address().port;
     try {
-      const r = await fetch('http://127.0.0.1:3000/api/songs?q=Dreams', { signal: AbortSignal.timeout(2500) });
+      const r = await fetch(base + '/api/songs?q=Dreams', { signal: AbortSignal.timeout(2500) });
       const j = await r.json();
-      const l = await (await fetch('http://127.0.0.1:3000/api/lyrics?q=Fleetwood%20Mac', { signal: AbortSignal.timeout(2500) })).json();
+      const l = await (await fetch(base + '/api/lyrics?q=Fleetwood%20Mac', { signal: AbortSignal.timeout(2500) })).json();
       item(11, 'Server proxy for lyrics and songs (single-field), degrading without a connection',
         'GET /api/songs?q= and GET /api/lyrics?q= answered by the running server',
         r.status === 200 && typeof j.ok === 'boolean' && typeof l.ok === 'boolean' && !/artist.*title.*required/i.test(JSON.stringify(j)),
@@ -464,47 +391,15 @@ function kept(out, src) {
     } catch (e) {
       item(11, 'Server proxy for lyrics and songs (single-field), degrading without a connection',
         'HTTP check against the running server',
-        false, 'the server is not answering on port 3000 (' + e.message + ') — start it with `node server.js`');
-    }
-    /* the long-song path of the Stem lab: a song is separated in slices, and the
-     * slices have to add up to the same audio as a whole-file pass — and what
-     * comes out has to fit in the fold, or the WAV and the sound card clip it */
-    try {
-      const long = Math.round(9.5 * SR);
-      const seg = [new Float32Array(long), new Float32Array(long)];
-      let seed = 11;
-      const nz = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
-      let segPeak = 0;
-      for (let i = 0; i < long; i++) {
-        const t = i / SR, beat = (i % Math.round(SR * 0.5)) / SR;
-        const hit = 0.6 * Math.exp(-beat * 22) * nz();
-        seg[0][i] = 0.3 * Math.sin(TAU * 440 * t) + 0.3 * Math.sin(TAU * 220 * t) + hit;
-        seg[1][i] = 0.3 * Math.sin(TAU * 440 * t) - 0.3 * Math.sin(TAU * 220 * t) + hit * 0.95;
-        segPeak = Math.max(segPeak, Math.abs(seg[0][i]), Math.abs(seg[1][i]));
-      }
-      const whole = D.separate(seg, SR, 'vocals', { remove: true, amount: 0.9 });
-      const sliced = await D.separateChunked(seg, SR, 'vocals', { remove: true, amount: 0.9, sliceSeconds: 4 });
-      let track = 0, peak = 0;
-      for (let i = 0; i < long; i++) {
-        track = Math.max(track, Math.abs(sliced.channels[0][i] - whole.channels[0][i]));
-        peak = Math.max(peak, Math.abs(sliced.channels[0][i]));
-      }
-      let stopped = null;
-      try { await D.separateChunked(seg, SR, 'drums', { remove: true, shouldAbort: () => true, sliceSeconds: 4 }); }
-      catch (e) { stopped = e; }
-      const lab = read('public/js/stemlab.js');
-      const ui = ['st-btn-cancel', 'st-btn-mic', 'st-btn-wav', 'st-btn-play', 'st-btn-run'].filter(id => read('public/index.html').indexOf('id="' + id + '"') > 0);
-      const micTake = /recordSeconds/.test(lab) && /startMic|stopMic/.test(read('public/js/audio.js'));
-      item(16, 'The Stem lab holds up on a whole song — the slices add up, nothing clips, and a long run can be stopped',
-        'a 9.5 s song separated twice (whole file, and in 4 s slices through the same path the page uses), the results compared sample by sample, plus the lab’s own controls',
-        track <= segPeak * 0.02 && peak <= 1 && stopped && stopped.aborted === true && ui.length >= 5 && micTake,
-        sliced.slices + ' slices land within ' + (100 * track / segPeak).toFixed(2) + '% of the whole-file pass (peak ' + peak.toFixed(3) + ', fold ' +
-        (peak <= 1 ? 'clean' : 'broken') + '), a run can be stopped (“' + (stopped ? stopped.message : 'nothing thrown') + '”), and the lab offers ' +
-        ui.length + ' of 5 controls, mic take ' + (micTake ? 'wired' : 'missing') + ')');
-    } catch (e) {
-      item(16, 'The Stem lab holds up on a whole song — the slices add up, nothing clips, and a long run can be stopped',
-        'the sliced separation path', false, 'threw ' + e.message);
-    }
+        false, 'test server failed: ' + e.message);
+    } finally { await new Promise(resolve => testServer.close(resolve)); }
+    (function () {
+      const lab = read('public/js/stemlab.js'), worker = read('public/js/ai-stem-worker.mjs');
+      const ui = ['st-btn-cancel', 'st-btn-mic', 'st-btn-wav', 'st-btn-play', 'st-btn-run'].every(id => has('public/index.html', 'id="' + id + '"'));
+      item(16, 'Cancellable on-device stem processing', 'worker, cancellation and output controls are wired; actual model execution is covered separately',
+        ui && /terminate\(\)/.test(lab) && /separateInBlocks/.test(worker),
+        'worker terminates on cancellation · playback and export controls present · long-song quality/performance not benchmarked here');
+    })();
 
     /* the transport: a waveform, a clock, skipping, and an A–B loop */
     (function () {
@@ -523,77 +418,11 @@ function kept(out, src) {
         ' · A–B reaches the audio node: ' + (abLoop ? 'yes' : 'no') + ' · driven for real in test/dom-smoke.js and test/pwa-e2e.js (§9)');
     })();
 
-    /* the separation must not fade the voice: measured against the voice itself */
     (function () {
-      try {
-        const FS = 22050, TAU = Math.PI * 2;
-        const words = [];
-        for (let k = 0; k < 10; k++) words.push({ at: 0.5 + k * 0.5, dur: 0.34, f0: 196 * Math.pow(2, (k % 4) / 12) });
-        const total = Math.ceil((words[words.length - 1].at + 1) * FS);
-        const voice = new Float32Array(total);
-        let seed = 3;
-        const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
-        words.forEach(w => {
-          const s0 = Math.round(w.at * FS), len = Math.round(w.dur * FS);
-          for (let i = 0; i < len; i++) {
-            const t = i / FS, vib = 1 + 0.012 * Math.sin(TAU * 5.5 * t);
-            const env = Math.min(1, t / 0.02) * Math.min(1, (w.dur - t) / 0.05);
-            let v = 0;
-            for (let h = 1; h <= 6; h++) v += Math.sin(TAU * w.f0 * h * vib * t) / (h * 1.4);
-            voice[s0 + i] += 0.34 * env * v * (1 + 0.25 * rnd());
-          }
-        });
-        const gl = new Float32Array(total), gr = new Float32Array(total), lo = new Float32Array(total), dr = new Float32Array(total);
-        const chords = [[196, 246.9, 392], [220, 277.2, 440], [174.6, 261.6, 349.2], [146.8, 220, 293.7]];
-        for (let bar = 0; bar < total / FS; bar++) {
-          const ch = chords[bar % 4], start = Math.round(bar * FS);
-          for (let st = 0; st < 4; st++) {
-            const off = Math.round(st * 0.25 * FS);
-            ch.forEach((f, k) => {
-              const at = start + off + Math.round(k * 0.012 * FS);
-              for (let i = 0; i < 0.5 * FS && at + i < total; i++) {
-                const t = i / FS, e = Math.exp(-t * 3.2) * Math.min(1, t / 0.004);
-                gl[at + i] += 0.15 * e * Math.sin(TAU * f * t);
-                gr[at + i] += 0.15 * e * Math.sin(TAU * f * 1.003 * t);
-              }
-            });
-          }
-          for (let i = 0; i < FS; i++) { const at = start + i; if (at >= total) break; lo[at] += 0.24 * Math.sin(TAU * 82 * (at / FS)); }
-        }
-        for (let b = 0; b < Math.ceil(total / FS / 0.5); b++) {
-          const at = Math.round(b * 0.5 * FS);
-          for (let i = 0; i < 0.2 * FS && at + i < total; i++) dr[at + i] += 0.5 * Math.exp(-(i / FS) * 26) * rnd();
-        }
-        const mix = [new Float32Array(total), new Float32Array(total)];
-        for (let i = 0; i < total; i++) { mix[0][i] = voice[i] + gl[i] + lo[i] + dr[i]; mix[1][i] = voice[i] + gr[i] + lo[i] + dr[i]; }
-        const HOP = Math.round(0.01 * FS);
-        const env = a => { const o = []; for (let i = 0; i + HOP <= a.length; i += HOP) { let sum = 0; for (let k = 0; k < HOP; k++) sum += a[i + k] * a[i + k]; o.push(Math.sqrt(sum / HOP)); } return o; };
-        const dB = x => 20 * Math.log10((x || 0) + 1e-9);
-        const envV = env(voice);
-        const measure = out => {
-          const envO = env(out[0]);
-          const on = [], st = [];
-          words.forEach(w => {
-            const s0 = Math.round(w.at / 0.01), len = Math.round(w.dur / 0.01);
-            if (Math.max.apply(null, envV.slice(s0 + 12, s0 + len - 4)) < 0.05) return;
-            for (let k = 0; k < 4; k++) on.push(dB(envO[s0 + k]) - dB(envV[s0 + k]));
-            for (let k = 12; k < len - 3; k++) st.push(dB(envO[s0 + k]) - dB(envV[s0 + k]));
-          });
-          const med = a => { const b = a.slice().sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
-          return { on: med(on), st: med(st) };
-        };
-        const iso = measure(D.separate(mix, FS, 'vocals', { remove: false, amount: 0.92 }).channels);
-        const rem = measure(D.separate(mix, FS, 'vocals', { remove: true, amount: 0.92 }).channels);
-        item(18, 'The separation keeps the voice’s own dynamics — it must not fade the voice in and out',
-          'a synthesised voice with ten words over guitar, bass and drums, measured in 10 ms frames against the real voice: isolating, the first 40 ms of a word must not sit below the steady part (a fade-in); removing, the notch must already be shut at a word’s onset',
-          iso.on >= -3 && Math.abs(iso.on - iso.st) <= 3 && rem.on <= -5 && rem.st <= -5 && Math.abs(Math.abs(rem.on) - Math.abs(rem.st)) <= 1.5,
-          'isolated voice: word onset ' + iso.on.toFixed(1) + ' dB off the real voice, steady part ' + iso.st.toFixed(1) +
-          ' dB · removed voice: ' + rem.on.toFixed(1) + ' dB leaked at the onset vs ' +
-          rem.st.toFixed(1) + ' dB mid-word — no swell back in');
-      } catch (e) {
-        item(18, 'The separation keeps the voice’s own dynamics — it must not fade the voice in and out',
-          'the voice-envelope measurement', false, 'threw ' + e.message);
-      }
+      const lab = read('public/js/stemlab.js');
+      item(18, 'AI output limitations are stated', 'the UI calls results estimates and warns about bleed and artifacts',
+        /estimates/.test(lab) && /bleed and artifacts/.test(lab),
+        'no claim of perfect isolation, unchanged voice dynamics or guaranteed source quality');
     })();
 
     finish();
@@ -601,13 +430,14 @@ function kept(out, src) {
 
   function finish() {
     const pass = rows.filter(r => r.pass).length;
-    console.log('\n' + (failures ? '❌ ' + failures + ' of ' + rows.length + ' requirement(s) not met' : '✅ all ' + rows.length + ' requirements verified'));
+    console.log('\n' + (failures ? '❌ ' + failures + ' of ' + rows.length + ' requirement(s) not met' : '✅ all ' + rows.length + ' capability and limitation checks passed'));
     if (process.argv.indexOf('--write') >= 0) {
       const out = ['# Requirements check', '',
         'Generated by `node test/requirements-audit.js --write` on ' + new Date().toISOString().slice(0, 10) + '.',
-        '', '| # | Asked for | How it is checked | Result | Evidence |', '|---|---|---|---|---|'];
+        '', 'These checks include disclosures of limitations; passing them does not mean every earlier feature request is fulfilled. In particular, separate acoustic/electric guitar isolation and Android device behavior remain unverified or unsupported.',
+        '', '| # | Capability or limitation | How it is checked | Result | Evidence |', '|---|---|---|---|---|'];
       rows.forEach(r => out.push('| ' + r.n + ' | ' + r.ask + ' | ' + r.how + ' | ' + (r.pass ? '✅' : '❌') + ' | ' + r.evidence.replace(/\|/g, '\\|') + ' |'));
-      out.push('', pass + ' of ' + rows.length + ' verified.');
+      out.push('', pass + ' of ' + rows.length + ' checks passed; see limitations above.');
       fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
       fs.writeFileSync(path.join(root, 'docs/REQUIREMENTS-CHECK.md'), out.join('\n') + '\n');
       console.log('→ wrote docs/REQUIREMENTS-CHECK.md');

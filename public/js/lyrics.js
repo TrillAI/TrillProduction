@@ -33,8 +33,8 @@
     if (TT.lyricsdb && TT.lyricsdb.chartFromSong) return TT.lyricsdb.chartFromSong(song);
     return {
       title: song.title, artist: song.artist, album: '',
-      lyrics: [song.title, song.artist, '', song.progression, (song.chords || []).join('  '), '', song.notes].join('\n'),
-      source: 'Trill Tuner library', chart: true, songId: song.id
+      lyrics: ['Play-along chart', '', song.progression, (song.chords || []).join('  '), '', song.notes].join('\n'),
+      source: 'Built-in library', chart: true, songId: song.id
     };
   }
 
@@ -168,12 +168,28 @@
     return { count: n, result: result };
   }
 
+  function displayLyrics(res) {
+    const text = String(res.lyrics || '');
+    if (res.source !== 'Trill Tuner library') return text;
+    // Earlier saved charts included the title, artist and branded source in
+    // the body. Hide that generated duplicate without changing saved data.
+    const lines = text.split('\n');
+    if (lines[0] === res.title && lines[1] === res.artist && lines[2] === '' &&
+        lines[3] === 'Play-along chart from the Trill Tuner library') {
+      return ['Play-along chart', ...lines.slice(4)].join('\n');
+    }
+    return text;
+  }
+
   function render(res) {
     current = res;
     els.rTitle.textContent = res.title;
     els.rArtist.textContent = res.artist + (res.album ? ' · ' + res.album : '');
-    els.body.textContent = res.lyrics;
-    els.src.textContent = (res.chart ? 'Play-along chart · ' : 'Lyrics · ') + (res.source || 'library');
+    const body = displayLyrics(res);
+    els.body.textContent = body;
+    const source = res.source === 'Trill Tuner library' ? 'Built-in library' : (res.source || 'library');
+    const isChart = res.chart || (source === 'Built-in library' && body.startsWith('Play-along chart\n'));
+    els.src.textContent = (isChart ? 'Play-along chart · ' : 'Lyrics · ') + source;
     els.result.hidden = false;
     updateFavBtn();
   }
@@ -188,7 +204,7 @@
     let f = favs();
     if (isFav()) f = f.filter(x => !(x.title === current.title && x.artist === current.artist));
     else {
-      f.unshift({ artist: current.artist, title: current.title, lyrics: current.lyrics, source: current.source, at: Date.now() });
+      f.unshift({ artist: current.artist, title: current.title, lyrics: current.lyrics, source: current.source, chart: !!current.chart, at: Date.now() });
       f = f.slice(0, 30);
     }
     TT.store.set('lyricsFavs', f);
@@ -218,7 +234,7 @@
     const f = favs();
     if (!f.length) { wrap.innerHTML = '<span class="dim">No favorites yet.</span>'; return; }
     f.forEach(x => wrap.appendChild(chip('★ ' + x.title + ' — ' + x.artist, () => {
-      render({ title: x.title, artist: x.artist, lyrics: x.lyrics, source: x.source, album: '' });
+      render({ title: x.title, artist: x.artist, lyrics: x.lyrics, source: x.source, chart: !!x.chart, album: '' });
       setStatus('');
     })));
   }
@@ -256,7 +272,7 @@
     els.form.addEventListener('submit', e => { e.preventDefault(); L.search(els.q.value); });
     els.btnCopy.addEventListener('click', () => {
       if (!current) return;
-      const txt = current.title + ' — ' + current.artist + '\n\n' + current.lyrics;
+      const txt = current.title + ' — ' + current.artist + '\n\n' + displayLyrics(current);
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(txt).then(() => setStatus('Copied to clipboard ✓', 'ok'));
       } else {

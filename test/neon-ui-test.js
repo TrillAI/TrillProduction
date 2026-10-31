@@ -61,6 +61,22 @@ async function noOverflow(page, label) {
   assert(sizes.scroll <= sizes.inner + 1, `${label} overflow: ${sizes.scroll} > ${sizes.inner}`);
 }
 
+async function uniqueHomeTools(page, label) {
+  const shown = await page.evaluate(() => {
+    const visible = el => el.getClientRects().length > 0;
+    return {
+      targets: [...document.querySelectorAll('#view-home .feature-card, #view-home .more-scroll button')]
+        .filter(visible).map(el => el.dataset.openView),
+      privacyNotices: [...document.querySelectorAll('#view-home .feature-banner, #view-home .home-device-pill')]
+        .filter(visible).length
+    };
+  });
+  const expected = ['tune', 'metronome', 'record', 'listening', 'lyrics', 'songs', 'styles',
+    'maker', 'stems', 'backing', 'learn', 'tools', 'rig', 'hookup', 'mine', 'progress', 'care', 'settings'];
+  assert.deepStrictEqual(shown.targets.slice().sort(), expected.sort(), `${label}: each tool appears once`);
+  assert.strictEqual(shown.privacyNotices, 1, `${label}: privacy message appears once`);
+}
+
 (async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -72,10 +88,16 @@ async function noOverflow(page, label) {
   await prepare(page, base, 1440, 900);
 
   assert.strictEqual(await page.$eval('#view-home', el => el.classList.contains('active')), true);
-  assert.strictEqual(await page.$$eval('.feature-card', els => els.length), 22);
+  assert.strictEqual(await page.$$eval('.feature-card', els => els.length), 18);
+  await uniqueHomeTools(page, 'desktop home');
   assert.strictEqual(await page.$eval('img.logo', el => el.complete && el.naturalWidth === 192), true,
     'the supplied icon is used in the app header');
-  assert.strictEqual(await page.$eval('img.splash-logo', el => el.getAttribute('src')), 'icons/icon-192.png');
+  assert.strictEqual(await page.$eval('.brand', el => el.getAttribute('aria-label')), 'Trill Tuner home');
+  assert.strictEqual(await page.$eval('.brand', el => el.textContent.trim()), '',
+    'the header does not repeat the name already in the icon');
+  assert.strictEqual(await page.$eval('#splash-title', el => el.textContent), 'Trill Tuner');
+  assert.strictEqual(await page.$eval('#splash-credit', el => el.textContent), 'by Brian Cross');
+  assert.strictEqual(await page.$('#nav .nav-foot'), null, 'no repeated drawer branding');
   const badLinks = await page.$$eval('[data-open-view]', els => els.map(el => el.dataset.openView)
     .filter(id => !document.getElementById('view-' + id)));
   assert.deepStrictEqual(badLinks, [], 'every home and dock destination must exist');
@@ -87,6 +109,9 @@ async function noOverflow(page, label) {
   await page.click('#btn-metro-start');
   assert.match(await page.$eval('#btn-metro-start', el => el.textContent), /stop/i);
   await page.click('#btn-metro-start');
+  await page.setViewport({ width: 390, height: 844 });
+  await page.evaluate(() => TT.app.showView('progress'));
+  assert(await page.$eval('#lb-password', el => el.getBoundingClientRect().width >= 200), 'leaderboard password input fits the themed form');
   await page.click('[data-open-view="home"].brand');
   await page.click('#btn-menu');
   await sleep(300);
@@ -109,6 +134,8 @@ async function noOverflow(page, label) {
   await page.evaluate(() => TT.app.toast('A notice from another tool'));
   assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 1);
   await page.click('.feature-card[data-open-view="tune"]');
+  assert.strictEqual(await page.$eval('.tuner-heading h2', el => el.textContent), 'Tuner',
+    'the tuner has a useful page heading without repeating the app name');
   assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
   const earned = await page.evaluate(() => {
     TT.app.toast('A tuning notification');
@@ -123,6 +150,7 @@ async function noOverflow(page, label) {
     const wave = document.querySelector('.wave-wrap');
     return !wave.contains(document.getElementById('mic-controls')) && !wave.contains(document.getElementById('strum-panel'));
   }), true, 'mic and strum panels do not cover the waveform');
+  await page.evaluate(() => TT.tuner.stopMic());
   await page.click('#btn-strum');
   assert.match(await page.$eval('#strum-feedback', el => el.textContent), /needs the mic/i);
   assert.strictEqual(await page.$$eval('#toasts .toast', els => els.length), 0);
@@ -170,7 +198,16 @@ async function noOverflow(page, label) {
   for (const width of [320, 390, 768]) {
     await page.setViewport({ width, height: 844 });
     await page.evaluate(() => TT.app.showView('home'));
+    await uniqueHomeTools(page, `${width}px home`);
     await noOverflow(page, `${width}px home`);
+    if (width <= 700) {
+      const menu = await page.$eval('#btn-menu', el => ({ width: el.getBoundingClientRect().width, icon: el.querySelector('svg').getBoundingClientRect().width }));
+      assert(menu.width >= 35 && menu.icon >= 18, `${width}px: menu and icon retain their tap target`);
+      assert.strictEqual(await page.$$eval('.more-scroll button', els => els.every(el => {
+        const box = el.getBoundingClientRect();
+        return box.left >= 0 && box.right <= innerWidth;
+      })), true, `${width}px: every extra tool is visible without horizontal scrolling`);
+    }
     await page.evaluate(() => TT.app.showView('tune'));
     await noOverflow(page, `${width}px tuner`);
     const dock = await page.$eval('.studio-dock', el => {
@@ -179,6 +216,9 @@ async function noOverflow(page, label) {
     });
     assert(dock, `${width}px navigation dock should fit`);
   }
+  await page.setViewport({ width: 390, height: 844 });
+  await page.evaluate(() => TT.app.showView('progress'));
+  assert(await page.$eval('#lb-password', el => el.getBoundingClientRect().width >= 200), 'leaderboard password input fits the themed form');
   await page.click('[data-open-view="home"].brand');
   await page.click('#btn-menu');
   await sleep(300);
@@ -186,6 +226,46 @@ async function noOverflow(page, label) {
   assert.strictEqual(await page.evaluate(() => TT.app.currentView), 'stems');
   console.log('PASS 320px, 390px, and tablet layouts, plus mobile drawer navigation');
   assert.deepStrictEqual(errors, [], 'no client-side JavaScript errors');
+
+  // A fresh launch has one logo and one helpful tuning message, not two welcomes.
+  const freshContext = await browser.createBrowserContext();
+  const fresh = await freshContext.newPage();
+  await fresh.setViewport({ width: 390, height: 844 });
+  await fresh.evaluateOnNewDocument(() => {
+    localStorage.setItem('tt.lyricsFavs', JSON.stringify([{
+      title: 'Saved Song', artist: 'Saved Artist', source: 'Trill Tuner library',
+      lyrics: 'Saved Song\nSaved Artist\n\nPlay-along chart from the Trill Tuner library\n\nKey C · 100 BPM'
+    }]));
+  });
+  await fresh.goto(base, { waitUntil: 'domcontentloaded' });
+  await fresh.waitForSelector('#splash:not([hidden])');
+  assert.strictEqual(await fresh.$eval('#splash-title', el => el.textContent), 'Trill Tuner');
+  assert.strictEqual(await fresh.$eval('#splash-credit', el => el.textContent), 'by Brian Cross');
+  await fresh.waitForFunction(() => document.getElementById('splash').hidden, { timeout: 5000 });
+  assert.strictEqual(await fresh.$eval('#assistant-log', el =>
+    (el.textContent.match(/Standard tuning is loaded/g) || []).length), 1);
+  await fresh.evaluate(() => TT.app.showView('lyrics'));
+  await fresh.click('#lyr-favs button');
+  const legacy = await fresh.evaluate(() => {
+    let copied = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText(text) { copied = text; return Promise.resolve(); }
+    } });
+    document.getElementById('btn-lyr-copy').click();
+    return {
+      body: document.getElementById('lyr-body').textContent,
+      source: document.getElementById('lyr-src').textContent,
+      stored: TT.store.get('lyricsFavs', [])[0].lyrics,
+      copied
+    };
+  });
+  assert.strictEqual(legacy.body, 'Play-along chart\n\nKey C · 100 BPM');
+  assert.strictEqual(legacy.source, 'Play-along chart · Built-in library');
+  assert.match(legacy.stored, /^Saved Song\nSaved Artist/,
+    'cleaning the display must not mutate saved favorites');
+  assert.strictEqual(legacy.copied, 'Saved Song — Saved Artist\n\nPlay-along chart\n\nKey C · 100 BPM');
+  await freshContext.close();
+  console.log('PASS single splash identity, welcome, and saved-chart display');
 
   // C-sharp is not an open standard-guitar string. This exercises the actual
   // chromatic detection path, not a hard-coded or decorative readout.
@@ -196,7 +276,7 @@ async function noOverflow(page, label) {
   await prepare(chromatic, base, 390, 844);
   await chromatic.click('.feature-card[data-open-view="tune"]');
   await chromatic.click('[data-tuner-mode="chromatic"]');
-  await chromatic.click('#tuner-mic');
+  if (await chromatic.evaluate(() => TT.audio.micState !== 'on')) await chromatic.click('#tuner-mic');
   await chromatic.waitForFunction(() => document.getElementById('tuner-gauge-note').textContent === 'C♯'
     && document.getElementById('tuner-gauge-status').textContent.includes('SHARP'), { timeout: 12000 });
   const pitch = await chromatic.evaluate(() => ({ cents: TT.tuner.state.cents, active: TT.tuner.state.active,

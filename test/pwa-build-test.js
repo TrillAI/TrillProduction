@@ -32,17 +32,24 @@ try {
     '// worker logic v1'
   ].join('\n') + '\n');
   put('downloads/ignored.apk', 'not precached');
+  const model = put('models/test.onnx', 'model-v1');
+  put('vendor/runtime.wasm', 'runtime-v1');
 
   const assets = assetList(dir);
   ok(assets.includes('/') && assets.includes('/index.html') && assets.includes('/sw.js'),
     'precache includes the app shell and worker');
   ok(!assets.some(p => p.startsWith('/downloads/')),
     'large APK downloads are excluded from the install precache');
+  ok(!assets.includes('/models/test.onnx') && !assets.includes('/vendor/runtime.wasm'),
+    'large AI model and runtime download on demand');
 
   const first = build(dir, { quiet: true }).version;
   const second = build(dir, { quiet: true }).version;
   ok(first === second, 'rebuilding an unchanged app keeps the same cache version', first);
 
+  fs.writeFileSync(model, 'model-v2');
+  const changedModel = build(dir, { quiet: true }).version;
+  ok(changedModel !== second, 'a lazy model update invalidates the service-worker cache version');
   fs.writeFileSync(app, 'y = 1;\n'); // same length, different bytes
   const changedAsset = build(dir, { quiet: true }).version;
   ok(changedAsset !== second, 'same-size asset edits invalidate the cache', `${second} → ${changedAsset}`);

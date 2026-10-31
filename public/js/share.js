@@ -70,7 +70,7 @@
   /* achievements                                                         */
   /* =================================================================== */
   const BADGES = [
-    { id: 'first-run', name: 'Welcome aboard', desc: 'Open Trill Tuner for the first time', test: s => true },
+    { id: 'first-run', name: 'Welcome aboard', desc: 'Open the app for the first time', test: s => true },
     { id: 'tuned-6', name: 'In tune', desc: 'Lock all six strings in one session', test: s => s.tuningsUsed >= 1 },
     { id: 'explorer', name: 'Tuning explorer', desc: 'Try 5 different tunings', test: s => s.tuningsUsed >= 5 },
     { id: 'tuner-vet', name: 'Tuning veteran', desc: 'Try 15 different tunings', test: s => s.tuningsUsed >= 15 },
@@ -224,7 +224,7 @@
     /* footer */
     g.fillStyle = 'rgba(255,255,255,.45)';
     g.font = '500 16px -apple-system, "Segoe UI", Roboto, sans-serif';
-    g.fillText('Local-first guitar practice · tuner, metronome, lessons, rigs · no account, no data leaves the device', 70, H - 40);
+    g.fillText('Local-first guitar practice · audio stays on your device · leaderboard sharing is optional', 70, H - 40);
     g.fillStyle = 'rgba(255,255,255,.75)';
     g.font = '700 16px -apple-system, "Segoe UI", Roboto, sans-serif';
     g.fillText('v' + VERSION, W - 130, H - 40);
@@ -248,9 +248,7 @@
       `• ${s.lessons} lessons complete`,
       `• ${s.tuningsUsed} tunings explored`,
       `• Ear-training streak: ${s.earBest}` + (s.rhythmBestMs != null ? ` · rhythm accuracy ${s.rhythmBestMs} ms` : ''),
-      `• ${badges.length} achievements unlocked`,
-      '',
-      'Trill Tuner — a from-scratch guitar tuner + practice studio.'
+      `• ${badges.length} achievements unlocked`
     ].join('\n');
   };
 
@@ -491,10 +489,10 @@
           const blob = await new Promise(res => els.cardCanvas.toBlob(res, 'image/png'));
           const file = new File([blob], 'trill-tuner-progress.png', { type: 'image/png' });
           if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ text: text, files: [file], title: 'My Trill Tuner progress' });
+            await navigator.share({ text: text, files: [file], title: 'My progress' });
             return;
           }
-          await navigator.share({ text: text, title: 'My Trill Tuner progress' });
+          await navigator.share({ text: text, title: 'My progress' });
           return;
         }
         await navigator.clipboard.writeText(text);

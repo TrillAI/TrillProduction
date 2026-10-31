@@ -31,7 +31,7 @@
         e.preventDefault();
         P.deferred = e;
         update();
-        if (window.TT && TT.app) TT.app.toast('Trill Tuner can be installed as an app — it then works fully offline.');
+        if (window.TT && TT.app) TT.app.toast('Install the app for offline access to its core tools.');
       });
       window.addEventListener('appinstalled', update);
       btn.addEventListener('click', () => P.prompt());

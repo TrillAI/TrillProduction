@@ -26,54 +26,59 @@
       const resume = () => { if (A.ctx && A.ctx.state === 'suspended') A.ctx.resume(); };
       ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, resume, { passive: true }));
     }
-    if (A.ctx.state === 'suspended') A.ctx.resume();
+    if (A.ctx.state === 'suspended') A.ctx.resume().catch(() => {});
     return A.ctx;
   };
 
   function emit() { if (A.onMic) A.onMic(A.micState, A.micError); }
 
-  A.startMic = async function () {
-    try {
-      A.ensure();
-    } catch (e) {
-      A.micState = 'error';
-      A.micError = (e && e.message) || 'Web Audio is unavailable';
-      emit();
-      throw e;
+  // Multiple tools share one permission request. An epoch invalidates a pending
+  // request when the user stops or backgrounds the app; a late stream is closed.
+  let micEpoch = 0, micRequest = null, requestEpoch = 0;
+  const captureStops = new Set();
+  A.startMic = function () {
+    if (A.micStream) return Promise.resolve(A.micStream);
+    if (micRequest) {
+      if (requestEpoch === micEpoch) return micRequest;
+      return micRequest.catch(() => {}).then(() => A.startMic());
     }
-    if (A.micStream) return A.micStream;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      A.micState = 'error'; A.micError = 'Microphone API unavailable'; emit();
-      throw new Error('getUserMedia unavailable');
-    }
-    A.micState = 'requesting'; A.micError = ''; emit();
-    try {
-      const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-      if (A.deviceId) audio.deviceId = { exact: A.deviceId };
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audio,
-        video: false
-      });
-      A.micStream = stream;
-      A.micSource = A.ctx.createMediaStreamSource(stream);
-      A.analyser = A.ctx.createAnalyser();
-      A.analyser.fftSize = 4096;
-      A.analyser.smoothingTimeConstant = 0;
-      A._buf = new Float32Array(A.analyser.fftSize);
-      A._freq = new Float32Array(A.analyser.frequencyBinCount);
-      A.micSource.connect(A.analyser);
-      A.micSource.connect(A.recorderDestLazy()); // mic is always available to the recorder
-      if (A.smartFilter) A.applySmartFilter(); // re-arm the band-limiter if it was on
-      A.micState = 'on'; emit();
-      return stream;
-    } catch (e) {
-      A.micState = 'error';
-      A.micError = (e && e.name) === 'NotAllowedError' ? 'Microphone permission was denied'
-        : (e && e.name) === 'NotFoundError' ? 'No microphone found'
-        : 'Microphone error: ' + ((e && e.name) || e.message || e);
-      emit();
-      throw e;
-    }
+    const epoch = ++micEpoch; requestEpoch = epoch;
+    const aborted = () => { const e = new Error('Microphone request cancelled'); e.name = 'AbortError'; return e; };
+    const request = (async () => {
+      try {
+        A.ensure();
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Microphone API unavailable');
+        A.micState = 'requesting'; A.micError = ''; emit();
+        const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+        if (A.deviceId) audio.deviceId = { exact: A.deviceId };
+        const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+        if (epoch !== micEpoch) { stream.getTracks().forEach(t => t.stop()); throw aborted(); }
+        A.micStream = stream;
+        A.micSource = A.ctx.createMediaStreamSource(stream);
+        A.analyser = A.ctx.createAnalyser();
+        A.analyser.fftSize = 4096; A.analyser.smoothingTimeConstant = 0;
+        A._buf = new Float32Array(A.analyser.fftSize); A._freq = new Float32Array(A.analyser.frequencyBinCount);
+        A.micSource.connect(A.analyser); A.micSource.connect(A.recorderDestLazy());
+        if (A.smartFilter) A.applySmartFilter();
+        stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => {
+          if (A.micStream === stream) A.stopMic();
+        }, { once: true }));
+        A.micState = 'on'; emit();
+        if (A.ctx.state === 'suspended') A.ctx.resume().catch(() => {});
+        return stream;
+      } catch (e) {
+        if (epoch !== micEpoch || e.name === 'AbortError') throw aborted();
+        if (A.micStream) { A.micStream.getTracks().forEach(t => t.stop()); A.micStream = null; A.micSource = null; A.analyser = null; }
+        A.micState = 'error';
+        A.micError = e.name === 'NotAllowedError' ? 'Microphone permission was denied'
+          : e.name === 'NotFoundError' ? 'No microphone found'
+          : (e.message === 'Microphone API unavailable' ? e.message : 'Microphone error: ' + (e.message || e.name || e));
+        emit(); throw e;
+      }
+    })();
+    micRequest = request;
+    request.finally(() => { if (micRequest === request) micRequest = null; }).catch(() => {});
+    return request;
   };
 
   /* ---------- smart filter: band-limit the analysis feed to the guitar's
@@ -157,10 +162,15 @@
       const tap = A.tapNode();
       tap.connect(sp);
       sp.connect(A._silent);
+      let done = false;
       const cleanup = () => {
+        if (done) return; done = true;
+        captureStops.delete(abort);
         try { tap.disconnect(sp); sp.disconnect(); } catch (e) {}
         sp.onaudioprocess = null;
       };
+      const abort = () => { if (!done) { cleanup(); reject(new Error('Microphone stopped during recording')); } };
+      captureStops.add(abort);
       sp.onaudioprocess = e => {
         const d = e.inputBuffer.getChannelData(0);
         const n = Math.min(d.length, need - got);
@@ -180,6 +190,8 @@
   };
 
   A.stopMic = function () {
+    micEpoch++;
+    captureStops.forEach(stop => stop());
     if (A.micStream) { A.micStream.getTracks().forEach(t => t.stop()); }
     A.removeSmartFilter();
     A.micStream = null; A.micSource = null; A.analyser = null;
