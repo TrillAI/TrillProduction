@@ -6,13 +6,14 @@ A complete guitar companion — **tuner, metronome, recorder, lyric search, a de
 academy, an advanced guitar toolkit, a virtual amplifier + pedalboard, progress sharing and a
 guitar-care kit** — with pitch detection written from scratch (no audio libraries).
 
-It runs as a **web app you can install (PWA — 100% offline after the first load)**, and as a
+It runs as a **web app you can install (PWA — core tools available offline)**, and as a
 **native Android app** (`TrillTuner.apk`, built from this repo with no Android SDK, hosted by
 the app itself at `/download/trill-tuner.apk`). The same code powers both: the APK is a thin
 WebView shell around the web app, so it always ships exactly the code the test suites cover.
 
-The responsive neon studio opens on a home dashboard with quick access to every tool.
-Choose **Tune** for a live pitch dial, tap the microphone to start listening, and switch
+The responsive neon studio opens on a home dashboard with one entry for each tool.
+The supplied icon carries the app identity without repeating the name across the interface.
+Choose **Tune** for a live pitch dial; allow microphone access when prompted, and switch
 between guitar-string targeting and true chromatic tuning. The waveform, strobe, tuning
 presets, reference tones, and other advanced controls are under **More tuner tools**.
 Night mode is the default; **Settings → Sun** remains available for outdoor use.
@@ -25,7 +26,7 @@ practice time or presets saved under the old name are migrated automatically, so
 
 **At a glance** — 70 amps · 141 amp tones · 145 pedals · 22 genre recipes · 41 famous rigs · 94 tunings ·
 26 scales · 31 chord types · 621 songs · 30 lessons · 51 artists · 28 techniques · 8 backing feels ·
-18 tool views plus Home · 33 badges — no accounts; audio never leaves your device.
+18 tool views plus Home · 33 badges. Audio stays on your device; the online leaderboard is optional and uses accounts.
 
 ## Run it
 
@@ -49,8 +50,7 @@ Browser suites require Puppeteer’s installed Chrome (or `PUPPETEER_EXECUTABLE_
 `npm test` needs no browser and no audio files: every suite synthesises the signal it measures
 (a plucked string, a strummed triad, a full band mix) and checks the engine against it.
 **`test/requirements-audit.js`** is the one to read first: it walks every requested feature —
-song search, the listening tab maker, vocal removal, per-instrument removal, the acoustic-only
-chop, single-field lyric search, the live listener — and either measures it against synthesised
+song search, the listening tab maker, AI stem-lab controls and limitations, single-field lyric search, and the live listener — and either measures it against synthesised
 audio or checks the DOM contract, printing the number it measured. `docs/REQUIREMENTS-CHECK.md`
 is that run written out.
 
@@ -241,13 +241,38 @@ metronome in `test/looper-test.js`.
   `localStorage` under the `tt.` prefix, written straight away (no save button). Data saved by the
   app's earlier version is imported on first load.
 
-## Splash screen
+## Online leaderboard
 
-Every launch shows a branded splash — logo, version, live library counters ("94 tunings · 145
-pedals · 70 amps", read from the libraries that actually loaded), a boot log that reports what
-actually loaded and what was skipped (mic, storage,
-polyphony), a progress bar, and then it lets you in. Press **Enter** (or *Enter without waiting*)
-at any time to skip straight to the app.
+The optional leaderboard ranks public usernames by **1 point per practice minute, 25 per
+completed lesson and 10 per achievement**. Totals are self-reported by clients and can be
+manipulated; they are not verified skill or a cheat-proof competition. When signed in, the app
+syncs only these three counts; audio, files, passwords, and other local progress are not published.
+Passwords are sent to the account server over HTTPS, hashed with scrypt and never saved in plain
+text. A short-lived browser session token is not included in backups. Users can delete their account.
+There is no email-based recovery; users must keep their passwords safe.
+
+`node server.js` provides the account/leaderboard API. For a shared community, an operator must
+**deploy a single server on an HTTPS domain**, set `TRILL_DATA_DIR` to a persistent, backed-up
+private volume, and configure a reverse proxy. Set `TRILL_TRUST_PROXY=1` only when the proxy is
+trusted and overwrites `X-Forwarded-Proto` with the real client scheme. Localhost HTTP is allowed
+for development; external account requests require HTTPS. The built-in JSON store is designed for
+one process, not multiple replicas; it has basic request limits but is not a fully managed identity
+service. Arrange monitoring, backups, abuse handling, privacy policy and password recovery before
+public launch. No public service is automatically deployed by this repository. On Android or static
+hosting, enter the deployed HTTPS origin in Progress → Leaderboard server; separate installations
+share rankings only when pointed at the same server. `npm test` covers the API; `npm run
+test:features` tests two browser accounts and ranking.
+
+## Splash screen and microphone
+
+The title “Trill Tuner” fades in and out, followed by a separate “by Brian Cross” screen.
+Skip the intro with the button or Escape. Reduced-motion preferences disable the fades.
+
+On opening the app, the tuner requests microphone access automatically, including on a first
+visit. Browser/OS permission and, on some browsers, an audio-activation gesture are still required.
+The status button is visible across the app and can stop listening. The foreground tuner keeps
+listening while navigating; the app releases the mic when backgrounded and tries to resume when
+visible again, unless you explicitly stopped it. No microphone audio is uploaded.
 
 ## Metronome · Recorder · Lyrics · Learn · Care
 
@@ -275,8 +300,7 @@ at any time to skip straight to the app.
   - **Room & wood watch**: enter temperature/humidity; get dry-air, humidity and
     heat warnings for your wooden instrument.
 
-Everything runs client-side; the server only serves static files and proxies
-lyric searches. Audio never leaves your machine.
+Audio processing runs client-side. The server serves the app, proxies lyric searches and stores optional leaderboard accounts and aggregate scores. Audio never leaves your machine.
 
 ## Songs, styles and players
 
@@ -306,33 +330,27 @@ triad/seventh template match with an octave-disambiguated spectrum, and autocorr
 estimation. Reading a library song works with no audio at all; the sheet transposes, prints, and
 plays back through the practice suite.
 
-## Stem lab — a whole band, minus the part you choose
+## Stem lab — four AI-estimated sources
 
-30 recipes over 28 separation modes: **vocals out (karaoke)**, drums/bass/electric/acoustic **out or
-isolated**, keys, strings, synths, all guitars, plus the **classic karaoke with the bass kept**. Each
-one is a real spectral mask (Hann FFT, per-bin tonal × percussive × stereo-coherence × presence
-gating, a robust 25th-percentile noise floor and a neighbourhood-widened notch), not a filter sweep.
+The lab uses SCNet, a trained source-separation network, through ONNX Runtime Web. It predicts
+**vocals, drums, bass and other instruments** on the device; your music is not uploaded. The
+compact 120-frame model trades some separation quality for a lower memory footprint, but can
+still require substantial memory and several minutes. The first web run downloads roughly 23 MB
+of model and runtime data; subsequent runs can work offline if the browser keeps that cache.
+The Android package includes the model and runtime. A current WebAssembly-capable browser is needed.
 
-The **"Remove ONLY the acoustic guitar"** mode is the hard one, and it is tuned for exactly that
-request. A strummed acoustic is harmonic like a distorted electric, so the mask does not rely on the
-spectrum at all: it follows the **envelope of each bin's neighbourhood**. A plucked chord rises and
-then dies away; a held, distorted, even vibratoed electric does not — and measuring the *neighbourhood*
-rather than the single bin is what makes the measure immune to pitch modulation (vibrato, a whammy
-dip or a chorus move energy between neighbouring bins without removing any of it). Percussive
-transients are explicitly excluded, which is what keeps the kit alive.
+Load a song or a 20-second mic recording, separate once, then select any of the four estimates.
+You can play, loop and export the selected stem as WAV or subtract an adjustable amount of it
+from the original to make a practice mix. The estimates are not original multitracks: they can
+contain bleed and artifacts. Guitars, keys and other instruments are grouped together; acoustic
+and electric guitar cannot be reliably separated from each other. Results vary by recording.
 
-Measured on a synthesised band — a strummed acoustic, a saturated electric holding a power chord with
-a real ±15-cent vibrato, and a kick/snare pattern — the numbers in `npm test` are:
-
-| layer | remove the acoustic | isolate the acoustic |
-|---|---|---|
-| acoustic | **−6.8 dB** | −2.8 dB |
-| electric | −2.2 dB | −3.3 dB |
-| drums | −2.1 dB | −4.9 dB |
-
-so the acoustic loses roughly 4.5 dB more than anything else, and both other layers stay within a
-couple of dB of where they started. Fewer than −190 dB of the vocal survives the classic karaoke
-recipe. Results can be handed straight to the tab maker.
+The pinned compact model is adapted from SCNet, copyright 2024 starrytong, MIT; the conversion
+and attribution, including the MUSDB18-HQ training data caveat, are documented in
+`public/models/scnet-compact/NOTICE.txt` and `public/vendor/`. The model's author permits
+redistribution, but review the training dataset's terms before commercial distribution.
+`npm run test:ai` runs the real model in Chromium on a synthetic signal and checks all four
+outputs and a second inference with the network disabled. It is a pipeline check, not a listening test or SDR benchmark.
 
 ### The player: waveform, clock, skip, and an A–B loop
 
@@ -344,34 +362,6 @@ the audio node itself (`loopStart`/`loopEnd`), so there is no glitch at the wrap
 loops the whole take. Arrow keys skip ±5 s, `Home`/`End` jump to the ends. The playhead follows the
 AudioContext clock rather than a wall timer, so the picture and the sound cannot drift apart. After
 you separate, the same player switches to the result (Save as WAV and “read its chords” unlock then).
-
-### Not fading the voice
-
-The mask is applied as a **running gain**, not frame by frame. A soft per-frame mask multiplies the
-voice by its own confidence, which is audible: words ramp in when isolating, and the first tenth of
-every word leaks through the notch when removing. So the gain now snaps in the direction that
-*protects* the target — the notch deepens and the island opens on the very frame a note appears — and
-eases *towards the new target* over ~40 ms (isolate) / ~110 ms (remove) once it stops (decaying
-towards silence instead was a fade all by itself: a held vowel wandered down 4 dB). The acoustic
-profile is deliberately excluded: its whole discriminator is the *shape* of the envelope, and holding
-gains across frames would smooth away the feature it is measuring.
-
-Measured against the real voice (10 ms frames, synthesised words over a band, plus a dead-steady
-vowel — the numbers `npm test` prints):
-
-| | word onset vs steady | held vowel |
-|---|---|---|
-| isolate, before | onset 3.5 dB off, 1.8 dB quieter than the body (a fade-in) | **−4 dB and falling** |
-| isolate, now | onset and body within **1.6 dB** of each other | **−0.1 dB**, ripple ±1.4 dB |
-| remove, before | 1.9 dB *more* voice leaked at the onset than mid-word | |
-| remove, now | −10 dB at the onset vs −11 dB mid-word — no swell back in | |
-
-What is left at a word's onset is the analysis window's own resolution (a 4096-point Hann window at
-22 kHz smears a transient over ±90 ms); making that shorter would cost the frequency resolution the
-notch needs to find harmonics.
-
-Long files are processed in overlapping slices through `separateChunked`, so a 10-minute song does not
-freeze the page; progress is reported as it goes.
 
 ## Live listener — told both when you are wrong and when you are right
 
@@ -412,7 +402,7 @@ every step that actually starts that step.
 **`public/downloads/TrillTuner.apk`** — the whole app as a native Android app:
 
 - **The web app, bundled.** The APK is a small WebView shell (`apk-src/smali/`: `MainActivity`,
-  `TClient`, `TChrome`, `TBridge`) that loads `file:///android_asset/index.html` with the entire
+  `TClient`, `TChrome`, `TBridge`) that serves `https://appassets.androidplatform.net/index.html` from bundled assets, with the entire
   `public/` folder as assets. Every asset in the APK is byte-identical to the tested web app
   (a test enforces it), so the APK *is* the app.
 - **Named "Trill Tuner"**, package `com.trilltuner.app`, versionName 2.1.0, minSdk 24 /
@@ -436,11 +426,13 @@ every step that actually starts that step.
 - **Verified without a device** as far as that is possible: `npm run test:apk` checks the zip
   layout, asset fidelity, alignment, signature blocks, runs a real `apksigner verify`, and
   `test/apk-verify.py` decodes the binary manifest with androguard (package, label, version,
-  permissions, launcher activity, dex classes, signature schemes, certificate). The web app
-  itself is also loaded over **file://** in the E2E — exactly the context the WebView loads
-  it in — and the tuner is proven to work there (mic, detection, in-tune lock, zero JS errors).
+  permissions, launcher activity, dex classes, signature schemes, certificate). Chromium tests
+  cover the web app and real AI inference, but they do not reproduce Android WebView; test the
+  new secure-origin shell, mic permission and stem worker on physical devices before release.
+  Changing from the old file origin to this secure origin also changes WebView storage; export
+  a backup before upgrading and restore it afterward.
 
-## PWA — install it, then work 100% offline
+## PWA — installable, with offline core tools
 
 The web version is a full **progressive web app**:
 
@@ -449,11 +441,11 @@ The web version is a full **progressive web app**:
   supplied `tools/assets/trill-tuner-icon.webp` with `tools/make-icons.py`, which requires Pillow),
   apple-touch-icon and iOS meta tags, a mobile viewport
   (`width=device-width`, `viewport-fit=cover`, with zoom allowed).
-- `public/sw.js` — a service worker that **precaches every asset on first load**
+- `public/sw.js` — a service worker that **precaches the app shell on first load**
   (`node tools/build-pwa.js` stamps the asset list + a content-hash cache version),
   serves cache-first, falls back to the cached shell for navigations when the network
-  is gone, runtime-caches the APK download, skips waiting and cleans old caches.
-- **100% offline after the first load** — proven, not promised: `test/pwa-e2e.js` loads
+  is gone, runtime-caches the model, WASM and APK on demand, skips waiting and cleans old caches.
+- **Offline core tuner** — tested: `test/pwa-e2e.js` loads
   the app, cuts the network (`page.setOfflineMode(true)`), reloads, and the tuner still
   detects an in-tune low E from the microphone with zero JavaScript errors.
 - Installable: the browser's install prompt is captured and offered as an

@@ -37,6 +37,9 @@ ok(miss.length === 0, 'a miss is an empty list, not an error', 'clean');
 const chart = L.chartFromSong(C.SONGS.find(s => s.title === 'Dreams') || C.SONGS[0]);
 ok(chart && chart.lyrics.length > 100 && /Play-along chart/i.test(chart.lyrics),
   'catalog songs become a play-along sheet, not a copyright dump', chart.lyrics.length + ' chars');
+ok(chart && chart.source === 'Built-in library' && !/Trill Tuner/i.test(chart.lyrics)
+  && !chart.lyrics.startsWith(chart.title + '\n' + chart.artist),
+  'chart keeps its metadata without repeating the title, artist or brand');
 
 const dreams = L.bestMatch('Dreams', C.search('Dreams', { cap: 8 }).songs);
 ok(dreams && /Dreams/i.test(dreams.title) && /Fleetwood/i.test(dreams.artist),

@@ -104,6 +104,26 @@
     settings: ['YOU', 'Settings', 'Make your studio feel like yours.']
   };
 
+  const viewHelp = {
+    metronome: 'Set tempo, meter, subdivisions and swing; tap a beat or add a jam progression while you practice.',
+    record: 'Record the microphone with optional clicks and backing; play back and download takes.',
+    listening: 'Compare played notes with a tuning, scale or chord target. Feedback is an estimate and depends on a clean microphone signal.',
+    lyrics: 'Search the built-in song library by title or artist. Online search needs the app server and a connection.',
+    songs: 'Find play-along charts by title, artist, style or chords, then save favorites and send a chart to your practice tools.',
+    styles: 'Explore players, techniques, gear and song suggestions; load linked rig recipes.',
+    maker: 'Analyze a recording for estimated chords, key and tempo, then edit, transpose or print the resulting chart. Check the estimates by ear.',
+    stems: 'Use on-device AI to estimate vocals, drums, bass and a combined other-instruments stem. Preview, loop or export each estimate.',
+    backing: 'Choose a key, feel, tempo and progression to render a practice bed; export it or send it to the Stem lab.',
+    learn: 'Work through lessons, chord shapes, drills, interval and ear-training exercises; practice time and completed lessons are saved locally.',
+    tools: 'Explore scales, chords, the circle of fifths, fretboard games, a looper, drone, setup tools and more.',
+    rig: 'Explore amp and pedal settings, build a signal chain and audition presets. Real guitar input needs a suitable audio interface.',
+    hookup: 'See the cable and interface setup for connecting an instrument; use headphones and manage feedback.',
+    mine: 'Collect favorite songs, tunings and rigs, review recent work and build a practice session.',
+    progress: 'Review practice and achievements, back up your local data, and optionally share aggregate progress on the online leaderboard.',
+    care: 'Log string changes, compare open and fretted pitch for intonation, and record room conditions.',
+    settings: 'Choose appearance, input, tuning reference and other preferences. Microphone access also depends on browser and device permissions.'
+  };
+
   app.showView = function (id) {
     if (!document.getElementById('view-' + id)) return;
     app.currentView = id;
@@ -120,6 +140,8 @@
         document.getElementById('view-heading-kicker').textContent = copy[0];
         document.getElementById('view-heading-title').textContent = copy[1];
         document.getElementById('view-heading-description').textContent = copy[2];
+        document.getElementById('view-heading-help').textContent = viewHelp[id] || '';
+        const detail = heading.querySelector('.view-help'); if (detail) detail.open = false;
       }
     }
     const dockView = id === 'home' ? 'home'
@@ -136,7 +158,8 @@
     document.body.scrollTop = 0;
     document.documentElement.scrollTop = 0;
     window.scrollTo(0, 0);
-    if (id === 'tune') TT.tuner.resume(); else TT.tuner.pause();
+    // Listening continues across foreground views; the tuner owns background privacy.
+    TT.tuner.resume();
     if (id === 'learn') TT.learn.renderPractice();
     if (id !== 'listening' && TT.listener && TT.listener.state && TT.listener.state.running) TT.listener.stop();
     if (id === 'care' && TT.care) TT.care.render();
@@ -145,6 +168,7 @@
     if (id === 'mine' && TT.mine && TT.mine.render) TT.mine.render();
     if (id === 'styles' && TT.styles) TT.styles.init();
     if (id === 'progress' && TT.share) TT.share.render();
+    if (id === 'progress' && TT.leaderboard) TT.leaderboard.refresh();
     if (id === 'progress' && TT.apkshare) TT.apkshare.render();
     if (id === 'tools' && TT.tools) TT.tools.setTab(document.querySelector('#tools-tabs .tab.active').dataset.tab);
     if (id !== 'tools' && TT.playtools && TT.playtools.stop) TT.playtools.stop();
@@ -156,7 +180,6 @@
       b.addEventListener('click', () => app.showView(b.dataset.view)));
     document.querySelectorAll('[data-open-view]').forEach(b => b.addEventListener('click', () => {
       app.showView(b.dataset.openView);
-      if (b.dataset.tunerModeTarget && TT.tuner.setTuningMode) TT.tuner.setTuningMode(b.dataset.tunerModeTarget);
       if (b.dataset.openTab && b.dataset.openView === 'tools' && TT.tools) TT.tools.setTab(b.dataset.openTab);
     }));
     const close = document.getElementById('nav-close');
@@ -187,17 +210,9 @@
   function bindMicPill() {
     const pill = document.getElementById('mic-pill');
     if (!pill) return;
-    pill.addEventListener('click', async () => {
-      if (TT.audio.micState === 'on') {
-        TT.audio.stopMic();
-        toast('Mic stopped. Reference tones still work for tuning by ear.');
-      } else if (TT.audio.micState === 'error') {
-        toast(TT.audio.micError + ' — try "Open in a new tab" from the tuner panel.');
-      } else {
-        app.showView('tune');
-        document.getElementById('btn-mic-start').click();
-      }
-    });
+    pill.addEventListener('click', () => TT.tuner.toggleMic());
+    const global = document.getElementById('global-mic-status');
+    if (global) global.addEventListener('click', () => TT.tuner.toggleMic());
   }
 
   function bindKeys() {
@@ -244,6 +259,7 @@
     wire('hookup', () => TT.hookup && TT.hookup.init());
     wire('settings', () => TT.settings && TT.settings.init());
     wire('share', () => TT.share.init());
+    wire('leaderboard', () => TT.leaderboard.init());
     wire('pwa', () => TT.pwa.init());
     wire('remote', () => TT.remote.init());
     wire('apkshare', () => TT.apkshare.init());
@@ -261,7 +277,7 @@
     const firstRun = !TT.store.get('visited', false);
     TT.store.set('visited', true);
     if (firstRun) {
-      assist('Welcome to Trill Tuner 🎸 Standard tuning is loaded. Hit “Start listening” and play your low E. There are 94 tunings, a full amp & pedal studio in the Rig tab, plus the songbook, tab maker, stem lab, listener, backing studio and My stuff.');
+      assist('Standard tuning is loaded. Allow the microphone when prompted, then play your low E.');
     } else {
       assist('Welcome back 🎸 Your settings, rig and practice history were restored.');
     }

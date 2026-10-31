@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-/* Regenerates public/sw.js with the full precache list for everything the
- * app serves, and stamps a content-hash cache version so updates roll out.
+/* Regenerates public/sw.js with the core shell precache list and stamps a
+ * content-hash cache version, including the lazy model/runtime, for updates.
  * Re-run after adding or changing files under public/. Usage:
  *   node tools/build-pwa.js
  */
@@ -30,7 +30,7 @@ function assetList(publicDir = PUBLIC) {
   /* downloads/ holds the APK itself: far too big to force into the first
    * install, and covered by the service worker's runtime cache on demand. */
   const assets = walk(publicDir, '')
-    .filter(p => !p.startsWith('/downloads/'))
+    .filter(p => !p.startsWith('/downloads/') && !p.endsWith('.onnx') && !p.endsWith('.wasm'))
     .map(p => p === '/index.html' ? '/' : p).sort();
   /* the shell itself must always be there, even if the scan changes shape */
   for (const must of ['/', '/index.html', '/style.css', '/manifest.webmanifest']) {
@@ -61,7 +61,8 @@ function contentHash(assets, publicDir = PUBLIC) {
 function build(publicDir = PUBLIC, options = {}) {
   const swPath = path.join(publicDir, 'sw.js');
   const assets = assetList(publicDir);
-  const version = 'tt-' + contentHash(assets, publicDir);
+  const lazy = walk(publicDir, '').filter(p => p.endsWith('.onnx') || p.endsWith('.wasm'));
+  const version = 'tt-' + contentHash(assets.concat(lazy), publicDir);
   let sw = fs.readFileSync(swPath, 'utf8');
 
   if (!VERSION_RE.test(sw) || !ASSETS_RE.test(sw)) {

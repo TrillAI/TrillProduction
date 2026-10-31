@@ -63,7 +63,11 @@
   function set(k, v) {
     const s = ls();
     if (!s) return false;
-    try { s.setItem(PREFIX + k, JSON.stringify(v)); return true; }
+    try {
+      s.setItem(PREFIX + k, JSON.stringify(v));
+      if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') window.dispatchEvent(new CustomEvent('tt:store-change', { detail: { key: k } }));
+      return true;
+    }
     catch (e) { return false; }   // private mode / quota exceeded
   }
 

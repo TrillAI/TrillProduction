@@ -3,7 +3,7 @@
 .source "MainActivity.java"
 
 # Trill Tuner — the Android shell. Loads the bundled web app from
-# file:///android_asset/index.html with a permissive, offline-ready WebView:
+# https://appassets.androidplatform.net/index.html with a permissive, offline-ready WebView:
 # JS + DOM storage on, media autoplay allowed, mic permission granted via
 # TChrome (plus the Android runtime grant asked for below), file inputs wired
 # to the system picker through TChrome.onShowFileChooser, and a small JS bridge
@@ -62,8 +62,8 @@
     const-string v3, "Android"
     invoke-virtual {v0, v2, v3}, Landroid/webkit/WebView;->addJavascriptInterface(Ljava/lang/Object;Ljava/lang/String;)V
 
-    # wv.loadUrl("file:///android_asset/index.html");
-    const-string v2, "file:///android_asset/index.html"
+    # wv.loadUrl("https://appassets.androidplatform.net/index.html");
+    const-string v2, "https://appassets.androidplatform.net/index.html"
     invoke-virtual {v0, v2}, Landroid/webkit/WebView;->loadUrl(Ljava/lang/String;)V
 
     # setContentView(wv);
@@ -95,6 +95,27 @@
     const/16 v2, 0x67
     invoke-virtual {p0, v1, v2}, Landroid/app/Activity;->requestPermissions([Ljava/lang/String;I)V
 
+    return-void
+.end method
+
+
+# A first-run Android permission grant can arrive after the WebView's initial
+# request. Retry only the automatic listener (it respects a user's Stop).
+.method public onRequestPermissionsResult(I[Ljava/lang/String;[I)V
+    .locals 3
+    invoke-super {p0, p1, p2, p3}, Landroid/app/Activity;->onRequestPermissionsResult(I[Ljava/lang/String;[I)V
+    const/16 v0, 0x67
+    if-ne p1, v0, :done_perm
+    const-string v0, "android.permission.RECORD_AUDIO"
+    invoke-virtual {p0, v0}, Landroid/app/Activity;->checkSelfPermission(Ljava/lang/String;)I
+    move-result v0
+    if-nez v0, :done_perm
+    iget-object v0, p0, Lcom/trilltuner/app/MainActivity;->wv:Landroid/webkit/WebView;
+    if-eqz v0, :done_perm
+    const-string v1, "if(window.TT&&TT.tuner&&TT.tuner.retryAutoMic)TT.tuner.retryAutoMic()"
+    const/4 v2, 0x0
+    invoke-virtual {v0, v1, v2}, Landroid/webkit/WebView;->evaluateJavascript(Ljava/lang/String;Landroid/webkit/ValueCallback;)V
+    :done_perm
     return-void
 .end method
 

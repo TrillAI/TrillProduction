@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Trill Tuner — Guitar Tuner, Amp & Pedals, Practice Studio</title>
-<meta name="description" content="Trill Tuner — a from-scratch chromatic and guitar tuner with 94 tunings, a neon studio and optional sun-readable mode, 70+ amplifiers and 140+ pedals with real settings, a learning academy, practice studio, advanced tools, progress sharing and backups. Works offline, no account.">
+<meta name="description" content="Trill Tuner — a from-scratch chromatic and guitar tuner with 94 tunings, a neon studio and optional sun-readable mode, 70+ amplifiers and 140+ pedals with real settings, a learning academy, practice studio, advanced tools, progress sharing and backups. Most tools work offline; the optional community leaderboard uses an account.">
 <meta name="theme-color" content="#080711">
 <script>
 try {
@@ -25,10 +25,9 @@ try {
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="neon.css">
-<script>/* Register the service worker as early as possible so the very first
-  visit is already enough to make the app work fully offline. On file:// (the
-  Android APK) registration is rejected — everything is local there anyway. */
-  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+<script>/* Cache the app shell early. Large AI files are cached on first use; online
+  services still need a connection. The Android shell serves bundled assets. */
+  if (!window.Android && 'serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('/sw.js').catch(function () {});
     });
@@ -72,37 +71,24 @@ try {
   <symbol id="i-power" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10M7 5.5a8 8 0 1 0 10 0"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
 </svg>
-<div class="splash" id="splash" hidden>
+<div class="splash" id="splash" hidden aria-label="Welcome">
   <div class="splash-inner">
-    <img class="splash-logo splash-pick" src="icons/icon-192.png" alt="" aria-hidden="true">
-    <h1 class="splash-title">TRILL <span>TUNER</span></h1>
-    <p class="splash-tag">tune · play along · take it apart · learn</p>
-    <div class="splash-facts">
-      <span><b id="splash-tunings">0</b> tunings</span>
-      <span><b id="splash-pedals">0</b> pedals &amp; wahs</span>
-      <span><b id="splash-amps">0</b> amps</span>
-      <span><b id="splash-songs">0</b> play-along songs</span>
-    </div>
-    <div class="splash-barwrap"><i id="splash-bar"></i></div>
-    <div class="splash-pct" id="splash-pct">0%</div>
-    <div class="splash-log" id="splash-log"></div>
-    <button class="btn btn-primary splash-enter" id="splash-enter" disabled>Enter the studio 🎸</button>
-    <label class="check splash-forever"><input type="checkbox" id="splash-forever"><span>Skip this next time</span></label>
-    <div class="splash-foot">Everything runs on your device — audio, settings and progress never leave your browser. <span id="splash-version">v2.0.0</span></div>
+    <div id="splash-title" class="splash-screen" aria-live="polite">Trill Tuner</div>
+    <div id="splash-credit" class="splash-screen splash-credit" aria-live="polite" hidden>by Brian Cross</div>
+    <button class="btn btn-ghost splash-skip" id="splash-enter" type="button">Skip intro</button>
   </div>
 </div>
 
 <div class="app" data-current-view="home">
 
   <header class="topbar">
-    <button class="brand" type="button" data-open-view="home" aria-label="Trill Tuner home">
-      <img class="logo" src="icons/icon-192.png" alt="" aria-hidden="true">
-      <span class="brand-copy"><span class="brand-name">TRILL <span>TUNER</span></span><span class="tagline">PLAY <i>•</i> PRACTICE <i>•</i> CREATE <i>•</i> ALL IN ONE</span></span>
-    </button>
+    <h1 class="brand-heading">
+      <button class="brand" type="button" data-open-view="home" aria-label="Trill Tuner home">
+        <img class="logo" src="icons/icon-192.png" alt="">
+      </button>
+    </h1>
     <div class="topbar-right">
-      <div class="device-badge" aria-label="Audio processing on your device: private, fast, offline">
-        <svg class="device-badge-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-device"></use></svg><span><b>100% ON YOUR DEVICE</b><small>PRIVATE <i>•</i> FAST <i>•</i> OFFLINE</small></span>
-      </div>
+      <button class="global-mic-status" id="global-mic-status" type="button" data-state="off" aria-label="Microphone off, press to start listening">○ Mic off</button>
       <button class="menu-btn" id="btn-menu" type="button" aria-label="Open all tools" aria-controls="nav" aria-expanded="false"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-menu"></use></svg><span>All tools</span></button>
     </div>
   </header>
@@ -187,10 +173,6 @@ try {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1.1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       <span>Settings</span>
     </button>
-    <div class="nav-foot">
-      <div>Trill Tuner</div>
-      <div class="dim">Pitch detection, chord reading<br>and stem separation all run<br>100% on your device</div>
-    </div>
   </nav>
 
   <main class="content">
@@ -205,10 +187,7 @@ try {
         </div>
         <span class="preview-copy"><span class="preview-eyebrow">A LITTLE CHECK-IN</span><strong>Ready when<br>you are.</strong><span>Open your tuner <span aria-hidden="true">↗</span></span></span>
       </button>
-      <div class="home-section-heading">
-        <div><p class="eyebrow">YOUR MUSIC. YOUR SPACE.</p><h2>Everything you need to play.</h2></div>
-        <span class="tool-count"><span></span> YOUR STUDIO, ALL IN ONE</span>
-      </div>
+      <div class="home-section-heading"><h2>Everything you need to play.</h2></div>
       <div class="feature-grid">
         <button class="feature-card feature-card--featured" type="button" data-open-view="tune" style="--mobile-order:1"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-fork"></use></svg><span class="feature-name">Tune</span><span class="feature-description">Accurate. Fast. Always ready.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
         <button class="feature-card " type="button" data-open-view="metronome" style="--mobile-order:3"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-metro"></use></svg><span class="feature-name">Metronome</span><span class="feature-description">Find your rhythm and keep time.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
@@ -228,29 +207,23 @@ try {
         <button class="feature-card feature-card--more" type="button" data-open-view="progress" style="--mobile-order:16"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-progress"></use></svg><span class="feature-name">Progress</span><span class="feature-description">Track your journey.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
         <button class="feature-card feature-card--more" type="button" data-open-view="care" style="--mobile-order:17"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"></use></svg><span class="feature-name">Care</span><span class="feature-description">Keep playing for life.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
         <button class="feature-card feature-card--more" type="button" data-open-view="settings" style="--mobile-order:18"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"></use></svg><span class="feature-name">Settings</span><span class="feature-description">Make it yours.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
-        <button class="feature-card feature-card--more feature-card--engine" type="button" data-open-view="tune" style="--mobile-order:19"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wave"></use></svg><span class="feature-name">Trill Tuner</span><span class="feature-description">Meet your tuning companion.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
-        <button class="feature-card feature-card--more feature-card--engine" type="button" data-open-view="tune" data-tuner-mode-target="chromatic" style="--mobile-order:20"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bars"></use></svg><span class="feature-name">Pitch detection</span><span class="feature-description">See the notes you play.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
-        <button class="feature-card feature-card--more feature-card--engine" type="button" data-open-view="maker" style="--mobile-order:21"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grid"></use></svg><span class="feature-name">Chord recognition</span><span class="feature-description">Find the chords in your music.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
-        <button class="feature-card feature-card--more feature-card--engine" type="button" data-open-view="stems" style="--mobile-order:22"><svg class="feature-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-stems"></use></svg><span class="feature-name">Stem separation</span><span class="feature-description">Split songs into their parts.</span><svg class="feature-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
         <div class="feature-banner">
           <div class="banner-illustration" aria-hidden="true"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-device"></use></svg></div>
-          <div class="banner-copy"><span class="banner-kicker">MADE FOR YOUR MUSIC</span><strong>100% ON<br>YOUR DEVICE</strong><p>Pitch, chords, and stems stay right here.</p><div class="banner-benefits"><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"></use></svg> PRIVATE</span><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"></use></svg> FAST</span><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wifi"></use></svg> OFFLINE</span></div></div>
+          <div class="banner-copy"><strong>100% ON<br>YOUR DEVICE</strong><p>Pitch, chords, and stems stay right here.</p><div class="banner-benefits"><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"></use></svg> PRIVATE</span><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"></use></svg> FAST</span><span><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wifi"></use></svg> OFFLINE</span></div></div>
         </div>
       </div>
       <div class="home-more"><span>MORE</span><div class="more-scroll"><button type="button" data-open-view="mine">My stuff</button><button type="button" data-open-view="hookup">Hookup Guitar</button><button type="button" data-open-view="rig">Rig</button><button type="button" data-open-view="progress">Progress</button><button type="button" data-open-view="care">Care</button><button type="button" data-open-view="settings">Settings</button></div></div>
-      <div class="home-engine"><div class="engine-heading"><span>CORE ENGINE</span><span>BUILT IN, NOT BOLTED ON</span></div><div class="engine-links"><button type="button" data-open-view="rig">Rig</button><button type="button" data-open-view="tune" data-tuner-mode-target="chromatic">Pitch Detection</button><button type="button" data-open-view="maker">Chord Recognition</button><button type="button" data-open-view="stems">Stem Separation</button></div></div>
-      <div class="home-signoff"><span></span> MADE FOR MUSIC. MADE FOR YOU. <span></span></div>
     </section>
 
     <div class="view-heading" id="view-heading" hidden>
       <button class="back-link" type="button" data-open-view="home"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"></use></svg> All tools</button>
-      <div><p class="eyebrow">YOUR STUDIO / <span id="view-heading-kicker">PLAY</span></p><h2 id="view-heading-title"></h2><p id="view-heading-description"></p></div>
+      <div><p class="eyebrow">YOUR STUDIO / <span id="view-heading-kicker">PLAY</span></p><h2 id="view-heading-title"></h2><p id="view-heading-description"></p><details class="view-help"><summary>What you can do here</summary><p id="view-heading-help"></p></details></div>
     </div>
 
     <!-- ==================== TUNE ==================== -->
     <section class="view" id="view-tune">
       <div class="tuner-stage">
-        <div class="tuner-heading"><button class="tuner-back" type="button" data-open-view="home" aria-label="Back to home"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"></use></svg></button><div><p class="eyebrow">YOUR POCKET TUNING STUDIO</p><h2>TRILL TUNER</h2></div><span class="tuner-heading-spacer"></span></div>
+        <div class="tuner-heading"><button class="tuner-back" type="button" data-open-view="home" aria-label="Back to home"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"></use></svg></button><h2>Tuner</h2><span class="tuner-heading-spacer"></span></div>
         <div class="tuner-mode" role="group" aria-label="Tuner mode"><button type="button" data-tuner-mode="chromatic" aria-pressed="false">Chromatic</button><button type="button" data-tuner-mode="guitar" class="active" aria-pressed="true">Guitar</button></div>
         <div class="tuner-dial">
           <svg viewBox="0 0 400 300" aria-hidden="true">
@@ -267,7 +240,7 @@ try {
         <div class="tuner-strings" id="tuner-strings" aria-label="Select a string"></div>
         <button class="tuner-mic" id="tuner-mic" type="button" aria-label="Start listening"><svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"></use></svg></button>
         <div class="tuner-mic-label" id="tuner-mic-label">START LISTENING</div>
-        <p class="tuner-mic-hint" id="tuner-mic-hint">Tap the mic to tune. Your audio stays on this device.</p>
+        <p class="tuner-mic-hint" id="tuner-mic-hint">Listening starts automatically after microphone permission. Tap to stop.</p>
         <button class="tuner-newtab" id="tuner-newtab" type="button" hidden>Open in a new tab ↗</button>
         <a class="tuner-more-link" href="#tuner-tools">More tuner tools <svg class="" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron"></use></svg></a>
       </div>
@@ -728,12 +701,18 @@ try {
             <button class="btn btn-ghost tiny" id="st-btn-cancel" hidden>■ Stop separating</button>
             <span class="dim smallish" id="st-run-note"></span>
           </div>
-          <div class="st-status" id="st-status">Load a song, then pick a recipe.</div>
+          <div class="st-status" id="st-status">Load a song, then separate it into four AI-estimated stems.</div>
         </div>
 
         <div class="card" id="st-result" hidden>
           <div class="card-h" id="st-result-h">The song</div>
           <div class="st-effect" id="st-effect"></div>
+          <div id="st-stem-picks" class="row-btns" hidden aria-label="Choose an estimated stem">
+            <button class="btn tiny" data-stem="vocals">Vocals</button>
+            <button class="btn tiny" data-stem="drums">Drums</button>
+            <button class="btn tiny" data-stem="bass">Bass</button>
+            <button class="btn tiny" data-stem="other">Other instruments</button>
+          </div>
           <div class="st-player">
             <canvas id="st-wave" class="st-wave" width="880" height="96" tabindex="0" role="img"
               aria-label="Waveform. Click to skip. Drag from point A to point B to loop that section."></canvas>
@@ -767,7 +746,7 @@ try {
           <div class="st-presets" id="st-presets"></div>
           <div class="card-h small">Or build your own</div>
           <div class="mk-opt">
-            <label class="field inline"><span>Instrument</span><select id="st-mode"></select></label>
+            <label class="field inline"><span>Estimated stem</span><select id="st-mode"></select></label>
             <label class="field inline"><span>Action</span><div class="seg seg-mini" id="st-action">
               <button class="seg-btn active" data-action="remove" type="button">Remove it</button>
               <button class="seg-btn" data-action="isolate" type="button">Keep only it</button>
@@ -1467,6 +1446,29 @@ try {
     <!-- ==================== PROGRESS ==================== -->
     <section class="view" id="view-progress">
       <div class="prog-grid">
+        <div class="card leaderboard-card" id="leaderboard">
+          <div class="card-h">Community leaderboard <span class="badge">Online</span></div>
+          <p class="hint">Ranked by self-reported progress: 1 point per practice minute, 25 per completed lesson, and 10 per achievement. Scores are not verified skill.</p>
+          <p class="hint">Joining is optional. Your public username and these three totals are shared; recordings and song audio stay on your device.</p>
+          <details id="lb-server-settings"><summary>Leaderboard server</summary>
+            <label class="field"><span>Server URL (HTTPS)</span><input id="lb-server" type="url" placeholder="Use this app’s server" autocomplete="url"></label>
+            <div class="row-btns"><button class="btn tiny" id="lb-save-server" type="button">Use server</button></div>
+            <p class="hint">On Android or a static site, enter the HTTPS address of a deployed leaderboard server. Leave blank to use this website’s server.</p>
+          </details>
+          <form id="lb-auth" class="leaderboard-auth">
+            <label class="field"><span>Public username</span><input id="lb-username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]+" autocomplete="username" required placeholder="Letters, numbers, underscore"></label>
+            <label class="field"><span>Password (10+ characters)</span><input id="lb-password" type="password" minlength="10" maxlength="128" autocomplete="current-password" required></label>
+            <div class="row-btns"><button class="btn btn-primary" id="lb-login" type="submit">Sign in</button><button class="btn" id="lb-register" type="button">Create account</button></div>
+            <p class="hint">No email is collected; there is no password-reset service. Keep your password safe.</p>
+          </form>
+          <div id="lb-signed-in" hidden>
+            <p class="hint" id="lb-account"></p>
+            <div class="row-btns"><button class="btn btn-primary tiny" id="lb-sync" type="button">Sync my progress</button><button class="btn tiny" id="lb-logout" type="button">Sign out</button><button class="btn btn-ghost tiny" id="lb-delete" type="button">Delete account</button></div>
+          </div>
+          <p class="hint" id="lb-status" role="status" aria-live="polite">Connecting to the leaderboard…</p>
+          <ol class="leaderboard-list" id="lb-list" aria-label="Leaderboard rankings"></ol>
+          <button class="btn btn-ghost tiny" id="lb-refresh" type="button">Refresh rankings</button>
+        </div>
         <div class="card">
           <div class="card-h">Your progress <span class="badge" id="progress-badge-count"></span></div>
           <div class="stat-grid" id="progress-stats"></div>
@@ -1495,14 +1497,14 @@ try {
 
         <div class="card apk-card">
           <div class="card-h">Get the Android app <span class="badge">APK</span></div>
-          <p class="hint">Trill Tuner as a native Android app — every feature, fully offline, mic permission handled. The APK is hosted by this app itself: scan the code with another phone, or open the link on it.</p>
+          <p class="hint">The Android package bundles the core tools and AI model. Accounts and other online features need a connection and a configured server. Scan the code with another phone, or open the link on it.</p>
           <div class="apk-share">
             <canvas id="apk-qr" class="qr-canvas" width="180" height="180"></canvas>
             <div class="remote-qr-side">
               <div class="card-h small">Scan to download — or open this link</div>
               <input type="text" id="apk-link" class="link-out" readonly>
               <div class="row-btns">
-                <button class="btn btn-primary" id="btn-apk-open">⤓ Download TrillTuner.apk</button>
+                <button class="btn btn-primary" id="btn-apk-open">⤓ Download APK</button>
                 <button class="btn btn-ghost" id="btn-apk-copy">📋 Copy link</button>
                 <button class="btn btn-ghost" id="btn-apk-share">📤 Share</button>
               </div>
@@ -1705,6 +1707,7 @@ try {
 <script src="js/hookup.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/share.js"></script>
+<script src="js/leaderboard.js"></script>
 <script src="js/lib/qrcode.js"></script>
 <script src="js/qr.js"></script>
 <script src="js/pwa.js"></script>

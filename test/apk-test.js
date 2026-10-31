@@ -75,6 +75,8 @@ function inflateRaw(entry, buf) {
     'assets/index.html', 'assets/style.css', 'assets/js/app.js',
     'assets/manifest.webmanifest', 'assets/sw.js',
     'assets/icons/icon-192.png', 'assets/icons/icon-512.png',
+    'assets/js/ai-stem-worker.mjs', 'assets/models/scnet-compact/scnet-f120.int8.onnx',
+    'assets/vendor/ort/ort-wasm-simd-threaded.wasm',
     'res/mipmap-mdpi-v4/ic_launcher.png', 'res/mipmap-xxxhdpi-v4/ic_launcher.png']) {
     ok(names.includes(req), 'zip contains ' + req);
   }
@@ -89,6 +91,9 @@ function inflateRaw(entry, buf) {
     'com/trilltuner/app/TChrome', 'com/trilltuner/app/TBridge']) {
     ok(dexText.includes(cls), 'classes.dex contains ' + cls);
   }
+
+  ok(dexText.includes('https://appassets.androidplatform.net/index.html'), 'native shell references the secure bundled origin');
+  ok(dexText.includes('application/wasm'), 'native shell includes a WASM response MIME type');
 
   /* ---- alignment rules (targetSdk 30+: resources.arsc stored + 4-aligned) ---- */
   const arsc = entries.find(e => e.name === 'resources.arsc');

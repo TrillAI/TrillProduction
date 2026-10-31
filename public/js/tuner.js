@@ -292,14 +292,14 @@
     if (needle) needle.style.transform = 'rotate(' + degrees.toFixed(1) + 'deg)';
     if (mic) {
       mic.classList.toggle('is-on', micState === 'on');
-      mic.disabled = micState === 'requesting';
-      mic.setAttribute('aria-label', micState === 'on' ? 'Stop listening' : 'Start listening');
+      mic.disabled = false;
+      mic.setAttribute('aria-label', (micState === 'on' || micState === 'requesting') ? 'Stop listening' : 'Start listening');
       mic.setAttribute('aria-pressed', micState === 'on' ? 'true' : 'false');
     }
     if (micLabel) micLabel.textContent = micState === 'on' ? 'LISTENING…' : micState === 'requesting' ? 'CONNECTING…' : micState === 'error' ? 'MIC UNAVAILABLE' : 'START LISTENING';
-    if (hint) hint.textContent = micState === 'on' ? 'Play a note and let it ring.'
+    if (hint) hint.textContent = micState === 'on' ? (TT.audio.ctx && TT.audio.ctx.state === 'suspended' ? 'Tap the screen to activate audio, then play a note.' : 'Play a note and let it ring. Tap the mic to stop.')
       : micState === 'error' ? (TT.audio.micError || 'Unable to access the microphone') + '. Check your browser permissions and try again.'
-      : 'Tap the mic to tune. Your audio stays on this device.';
+      : 'Listening starts automatically with permission. Tap the mic to resume; audio stays on this device.';
     if (newtab) newtab.hidden = micState !== 'error';
   }
 
@@ -882,29 +882,42 @@
   }
   function stopLoop() { running = false; if (raf) cancelAnimationFrame(raf); raf = 0; }
 
-  async function startMicFlow() {
+  let autoListen = true, autoBlocked = false;
+  async function startMicFlow(manual) {
+    if (manual) { autoListen = true; autoBlocked = false; }
+    if (!autoListen || document.hidden) return;
     els.micError.hidden = true;
     els.btnMicStart.disabled = true;
     els.btnMicStart.textContent = 'Requesting microphone…';
     try {
       await TT.audio.startMic();
     } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      autoBlocked = true;
       els.btnMicStart.disabled = false;
-      els.btnMicStart.textContent = '🎤 Start listening';
+      els.btnMicStart.textContent = '🎤 Retry microphone';
       els.micError.hidden = false;
-      els.micError.textContent = TT.audio.micError + '. If you\'re in a restricted preview frame, try "Open in a new tab". You can still tune by ear with the ▶ reference tones.';
+      els.micError.textContent = TT.audio.micError + '. Allow microphone access in browser or device settings, then retry. You can still use reference tones.';
       return;
     }
+    if (!autoListen || document.hidden) { TT.audio.stopMic(); return; }
     TT.store.set('micGranted', true);
     els.micControls.hidden = true;
     history = []; unmatched = [];
     calibUntil = performance.now() + 1200;
     calibSamples = [];
     slowRms = 0; transientAt = -1e9;
-    if (document.getElementById('view-tune').classList.contains('active')) startLoop();
+    startLoop();
     renderDial();
     assist('Mic live. Play a note and let it ring.');
   }
+  T.startMic = () => startMicFlow(true);
+  T.retryAutoMic = () => { if (autoListen && !document.hidden && TT.audio.micState !== 'on') { autoBlocked = false; startMicFlow(false); } };
+  T.stopMic = () => { autoListen = false; TT.audio.stopMic(); };
+  T.toggleMic = () => {
+    if (TT.audio.micState === 'on' || TT.audio.micState === 'requesting') T.stopMic();
+    else T.startMic();
+  };
 
   function handleMicState(state) {
     const pill = document.getElementById('mic-pill');
@@ -913,6 +926,12 @@
     pill.classList.toggle('err', state === 'error');
     document.getElementById('mic-pill-text').textContent =
       state === 'on' ? 'Live' : state === 'requesting' ? 'Requesting…' : state === 'error' ? 'Mic blocked' : 'Mic off';
+    const global = document.getElementById('global-mic-status');
+    if (global) {
+      global.dataset.state = state;
+      global.textContent = state === 'on' ? '● Mic live' : state === 'requesting' ? '● Mic connecting' : state === 'error' ? '● Mic blocked' : '○ Mic off';
+      global.setAttribute('aria-label', (state === 'on' || state === 'requesting') ? 'Microphone active, press to stop listening' : 'Microphone off, press to start listening');
+    }
     if (state === 'on') els.micControls.hidden = true;
     if (state !== 'on') {
       stopLoop();
@@ -1050,16 +1069,13 @@
       assist('Tuning progress reset.');
     });
     els.btnHearAll.addEventListener('click', T.hearAll);
-    els.btnMicStart.addEventListener('click', startMicFlow);
+    els.btnMicStart.addEventListener('click', () => T.startMic());
     els.btnNewTab.addEventListener('click', () => window.open(window.location.href, '_blank'));
     document.querySelectorAll('[data-tuner-mode]').forEach(button => {
       button.addEventListener('click', () => T.setTuningMode(button.dataset.tunerMode));
     });
     const dialMic = document.getElementById('tuner-mic');
-    if (dialMic) dialMic.addEventListener('click', () => {
-      if (TT.audio.micState === 'on') TT.audio.stopMic();
-      else if (TT.audio.micState !== 'requesting') startMicFlow();
-    });
+    if (dialMic) dialMic.addEventListener('click', T.toggleMic);
     const dialNewtab = document.getElementById('tuner-newtab');
     if (dialNewtab) dialNewtab.addEventListener('click', () => els.btnNewTab.click());
     T.setTuningMode(T.state.tuningMode, { silent: true });
@@ -1200,10 +1216,14 @@
 
     TT.audio.onMic = handleMicState;
 
-    if (TT.store.get('micGranted', false)) {
-      // returning user — permissions usually persist; autonomous start (errors appear inline)
-      startMicFlow();
-    }
+    // Request as soon as the app opens, including first use. Browsers still
+    // require permission and may require a gesture to resume the AudioContext.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { stopLoop(); if (TT.audio.micState === 'on' || TT.audio.micState === 'requesting') TT.audio.stopMic(); }
+      else if (autoListen && !autoBlocked) startMicFlow(false);
+    });
+    if (!document.hidden) startMicFlow(false);
+
   };
 
   /* Recompute targets (capo/sweetener/A4/preset changed) and refresh UI. */

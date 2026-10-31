@@ -2576,10 +2576,7 @@ So I hung my head and I cried.`)
   function chartFromSong(s) {
     if (!s) return null;
     const lines = [
-      s.title,
-      s.artist,
-      '',
-      'Play-along chart from the Trill Tuner library',
+      'Play-along chart',
       '',
       'Key ' + s.key + (s.capo ? ' · capo ' + s.capo : '') + ' · ' + s.bpm + ' BPM · level ' + s.level + '/5',
       '',
@@ -2600,7 +2597,7 @@ So I hung my head and I cried.`)
       artist: s.artist,
       album: '',
       lyrics: lines.join('\n').trim(),
-      source: 'Trill Tuner library',
+      source: 'Built-in library',
       chart: true,
       fullLyrics: false,
       songId: s.id || ''
@@ -2644,7 +2641,7 @@ So I hung my head and I cried.`)
       artist: hit.artist,
       album: hit.year ? String(hit.year) : '',
       lyrics: hit.lyrics,
-      source: hit.source || 'Trill Tuner library',
+      source: hit.source || 'Built-in library',
       chart: !!hit.chart,
       fullLyrics: hit.fullLyrics !== false,
       songId: hit.songId || hit.id || ''

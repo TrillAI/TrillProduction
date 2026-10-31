@@ -108,7 +108,7 @@ class FakeAudioContext {
 window.AudioContext = FakeAudioContext;
 window.webkitAudioContext = FakeAudioContext;
 window.navigator.mediaDevices = {
-  getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop() {} }] }),
+  getUserMedia: () => { const track = { stop() {}, addEventListener() {} }; return Promise.resolve({ getTracks: () => [track], getAudioTracks: () => [track] }); },
   enumerateDevices: () => Promise.resolve([])
 };
 /* A 2-D context that *records* instead of painting, so a test can see what was
@@ -217,15 +217,12 @@ check('TT namespace exists', () => {
   return Object.keys(w.TT).join(', ');
 });
 check('app boots without throwing', () => { window.document.dispatchEvent(new window.Event('DOMContentLoaded')); });
-check('splash rendered with live system checks', () => {
+check('splash renders the sequential title and credit', () => {
   const s = window.document.getElementById('splash');
-  if (!s) throw new Error('no splash');
-  if (s.hidden) throw new Error('splash was hidden on a first run');
-  const log = window.document.getElementById('splash-log');
-  if (!log || log.children.length < 1) throw new Error('boot log did not render steps');
-  const facts = window.document.getElementById('splash-pedals').textContent;
-  if (!(+facts > 60)) throw new Error('splash pedal count wrong: ' + facts);
-  return log.children.length + ' boot lines, ' + facts + ' pedals';
+  if (!s || s.hidden) throw new Error('splash was hidden on first run');
+  if (window.document.getElementById('splash-title').textContent !== 'Trill Tuner') throw new Error('missing title');
+  if (window.document.getElementById('splash-credit').textContent !== 'by Brian Cross') throw new Error('missing credit');
+  return 'title and credit';
 });
 check('splash dismisses and unblocks the app', () => {
   const s = window.document.getElementById('splash');
@@ -466,7 +463,8 @@ check('progress: stats, badges, share card, backup', () => {
   const backup = window.TT.store.exportAll();
   if (!backup.data || backup.app !== 'Trill Tuner') throw new Error('export shape wrong');
   window.TT.store.importAll(backup, { replace: false });
-  window.TT.share.shareText();
+  const shareText = window.TT.share.shareText();
+  if ((shareText.match(/Trill Tuner/gi) || []).length !== 1) throw new Error('progress summary repeats the app name');
   return `${stats} stats · ${badges} badges · ${Object.keys(backup.data).length} backup keys`;
 });
 check('sharing: a progress link round-trips and imports safely', async () => {
@@ -642,9 +640,19 @@ check('songs view: the set list is saved, described and copyable', () => {
   const list = window.TT.store.get('setlist', []);
   if (list.indexOf(song.id) === -1) throw new Error('not saved');
   const copy = doc.getElementById('ss-btn-copy-set');
-  copy.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const clipboard = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+  let copied = '';
+  Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: {
+    writeText(text) { copied = text; return Promise.resolve(); }
+  } });
+  try { copy.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }
+  finally {
+    if (clipboard) Object.defineProperty(window.navigator, 'clipboard', clipboard);
+    else delete window.navigator.clipboard;
+  }
   const shown = doc.getElementById('ss-setlist').textContent;
-  if (!/Wonderwall/.test(shown)) throw new Error('set list did not render');
+  if (!/Wonderwall/.test(shown) || !/Wonderwall/.test(copied)) throw new Error('set list did not render or copy');
+  if ((copied.match(/Trill Tuner/gi) || []).length !== 1) throw new Error('set list repeats the app name');
   return 'saved and rendered: ' + shown.slice(0, 40);
 });
 
@@ -665,6 +673,7 @@ check('tab maker: a library song becomes a chart, a chord library and a tab shee
   ['TRILL TUNER — TAB SHEET', 'CHORD CHART', 'CHORD SHAPES', 'THE CHORD LIBRARY FOR', 'PROGRESSIONS THAT FIT', 'STRUMMING'].forEach(needle => {
     if (sheet.indexOf(needle) === -1) throw new Error('tab sheet is missing “' + needle + '”');
   });
+  if ((sheet.match(/Trill Tuner/gi) || []).length !== 1) throw new Error('tab sheet repeats the app name');
   song.chords.forEach(c => { if (sheet.indexOf(c) === -1) throw new Error('tab sheet is missing the chord ' + c); });
   /* shapes must be real fret numbers, low string first */
   const shape = sheet.match(/G {2,}(\d|x)( (\d|x)){5}/);
@@ -717,53 +726,37 @@ check('tab maker: it reads the chords out of audio', () => {
   return names + ' · ' + res.tempo.bpm + ' BPM · sheet ' + sheet.length + ' chars';
 });
 
-check('stems: every recipe is wired to a real separation mode', () => {
+check('stems: recipes expose four honest AI targets', () => {
   const doc = window.document;
-  window.TT.stems.init();
   const cards = doc.querySelectorAll('#st-presets .st-preset');
-  if (cards.length < 14) throw new Error('only ' + cards.length + ' recipes');
+  if (cards.length !== 8) throw new Error('expected 8 recipes: ' + cards.length);
   const opts = [...doc.querySelectorAll('#st-mode option')].map(o => o.value);
-  window.TT.dsp.PROFILES && Object.keys(window.TT.dsp.PROFILES).forEach(k => {
-    if (opts.indexOf(k) === -1) throw new Error('no profile for ' + k);
-  });
-  ['classic-karaoke', 'classic-keep-bass'].forEach(k => { if (opts.indexOf(k) === -1) throw new Error('missing ' + k); });
-  const acoustic = [...cards].find(c => /ONLY the acoustic/.test(c.textContent));
-  if (!acoustic) throw new Error('the acoustic-only recipe is missing');
-  return cards.length + ' recipes · ' + opts.length + ' modes';
+  if (opts.join(',') !== 'vocals,drums,bass,other') throw new Error('unexpected targets: ' + opts);
+  if (!/cannot be reliably isolated/i.test(doc.getElementById('st-notes').textContent)) throw new Error('guitar limitation missing');
+  return cards.length + ' recipes · ' + opts.length + ' AI targets';
 });
 
-check('stems: the acoustic-only removal runs and describes itself', async () => {
-  const TT = window.TT;
-  const sr = 22050, n = sr * 3;
+/* Transport/mixing tests use synthetic estimates; test:ai separately runs the
+ * actual model in a browser, rather than pretending jsdom can run WASM. */
+function injectStemEstimates(TT) {
+  const channels = TT.stems.state.channels;
+  TT.stems.state.aiStems = Object.fromEntries(['vocals', 'drums', 'bass', 'other'].map((name, index) => [name,
+    [0, 1].map(c => Int16Array.from(channels[c] || channels[0], x => Math.round(Math.max(-1, Math.min(1, x)) * 32767 * (index + 1) / 5)))]));
+}
+check('stems: mixes and exports a selected estimated stem', async () => {
+  const TT = window.TT, sr = 22050, n = sr * 3;
   const L = new Float32Array(n), R = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / sr;
-    /* acoustic-ish wide tone + a centre vocal-ish tone, so removal has work to do */
-    L[i] = Math.sin(2 * Math.PI * 330 * t) * 0.4 + Math.sin(2 * Math.PI * 440 * t) * 0.3;
-    R[i] = Math.sin(2 * Math.PI * 330 * t) * 0.4 - Math.sin(2 * Math.PI * 440 * t) * 0.3;
-  }
-  const fake = { numberOfChannels: 2, sampleRate: sr, length: n, duration: 3, getChannelData: c => (c === 0 ? L : R) };
-  TT.stems.state.channels = [L, R];
-  TT.stems.state.sr = sr;
-  TT.stems.state.buffer = fake;
-  TT.stems.state.mode = 'acoustic-guitar';
-  TT.stems.state.remove = true;
+  for (let i = 0; i < n; i++) { L[i] = .4 * Math.sin(2 * Math.PI * 330 * i / sr); R[i] = .3 * Math.sin(2 * Math.PI * 440 * i / sr); }
+  TT.stems.loadBuffer({ numberOfChannels: 2, sampleRate: sr, length: n, duration: 3, getChannelData: c => c ? R : L }, 'mock estimates', sr);
+  injectStemEstimates(TT);
+  TT.stems.state.mode = 'vocals'; TT.stems.state.remove = false; TT.stems.state.amount = 1;
   await TT.stems.run();
   const result = TT.stems.state.result;
-  if (!result || !result.channels || result.channels[0].length !== n) throw new Error('no separation result');
-  const box = window.document.getElementById('st-effect').textContent;
-  if (!/acoustic/i.test(box)) throw new Error('no explanation rendered');
-  if (!/electric|drums/i.test(box)) throw new Error('the electric guitar promise is not explained');
-  if (window.document.getElementById('st-result').hidden) throw new Error('result panel stayed hidden');
-  /* and the WAV export of that result must be a valid container */
-  const raw = TT.dsp.encodeWav(result.channels, result.sr);
-  const dv = new DataView(raw);
-  const tag = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
-  if (tag !== 'RIFF') throw new Error('bad WAV header: ' + tag);
-  if (raw.byteLength !== 44 + n * 2 * result.channels.length) throw new Error('bad WAV length: ' + raw.byteLength);
-  const blob = new window.Blob([raw], { type: 'audio/wav' });
-  if (blob.size !== raw.byteLength) throw new Error('blob size mismatch');
-  return result.channels.length + ' channels · ' + (raw.byteLength / 1048576).toFixed(2) + ' MB wav';
+  if (!result || result.channels[0].length !== n || result.engine !== 'SCNet AI') throw new Error('no selected mix');
+  if (!/estimated stem/i.test(window.document.getElementById('st-effect').textContent)) throw new Error('estimate not explained');
+  const raw = TT.dsp.encodeWav(result.channels, result.sr), dv = new DataView(raw);
+  if (String.fromCharCode(...[0,1,2,3].map(i => dv.getUint8(i))) !== 'RIFF' || raw.byteLength !== 44 + n * 2 * result.channels.length) throw new Error('invalid WAV');
+  return result.channels.length + ' channels · RIFF WAV (synthetic estimates)';
 });
 
 check('stems: the room recording opens the microphone itself and loads the take', async () => {
@@ -863,6 +856,7 @@ check('stems: the result comes with a waveform, a clock, a skip and an A–B loo
   if (!doc.getElementById('st-btn-wav').disabled) throw new Error('Save as WAV was on before anything was separated');
   TT.stems.seek(0);
   TT.stems.state.mode = 'vocals'; TT.stems.state.remove = true;
+  injectStemEstimates(TT);
   await TT.stems.run();
   const t0 = TT.stems.transport();
   if (Math.abs(t0.dur - 6) > 0.05) throw new Error('the transport does not know the length: ' + t0.dur);
@@ -987,6 +981,7 @@ check('stems: a backing-studio render is handed over and separated here', async 
   /* and it must really separate from there */
   TT.stems.state.mode = 'drums';
   TT.stems.state.remove = true;
+  injectStemEstimates(TT);
   await TT.stems.run();
   const res = TT.stems.state.result;
   if (!res || res.channels[0].length !== render.channels[0].length) throw new Error('the hand-off did not separate');
@@ -1012,6 +1007,7 @@ check('stems: the stop button can end a long separation', async () => {
   TT.stems.state.buffer = { numberOfChannels: 2, sampleRate: sr, length: n, duration: 30 };
   TT.stems.state.mode = 'vocals';
   TT.stems.state.remove = true;
+  TT.stems.state.aiStems = null;
   const cancelBtn = doc.getElementById('st-btn-cancel');
   if (!cancelBtn) throw new Error('there is no stop button in the markup');
   if (!cancelBtn.hidden) throw new Error('the stop button is showing before anything runs');
@@ -1029,11 +1025,11 @@ check('stems: the stop button can end a long separation', async () => {
 check('stems: the recipe buttons load their settings and run', () => {
   const doc = window.document;
   const cards = [...doc.querySelectorAll('#st-presets .st-preset')];
-  const drumless = cards.find(c => /Remove the drums/.test(c.textContent));
+  const drumless = cards.find(c => /Reduce drums/.test(c.textContent));
   drumless.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   if (window.TT.stems.state.mode !== 'drums') throw new Error('mode is ' + window.TT.stems.state.mode);
   if (window.TT.stems.state.remove !== true) throw new Error('action is not remove');
-  const acapella = cards.find(c => /Isolate the vocals/.test(c.textContent));
+  const acapella = cards.find(c => /^🎙️ Vocals/.test(c.textContent));
   acapella.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   if (window.TT.stems.state.remove !== false) throw new Error('isolate did not switch the action');
   return 'recipes drive the mode, action and amount controls';

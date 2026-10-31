@@ -1,6 +1,14 @@
 'use strict';
 const path = require('path');
 const puppeteer = require('puppeteer');
+
+async function ensureMic(page) {
+  await page.waitForFunction(() => window.TT && TT.audio && TT.audio.micState !== 'requesting', { timeout: 12000 });
+  if (await page.evaluate(() => TT.audio.micState !== 'on')) {
+    await page.evaluate(() => TT.tuner.startMic());
+    await page.waitForFunction(() => TT.audio.micState === 'on', { timeout: 12000 });
+  }
+}
 let fails = 0;
 /* The splash screen shows on a first load. In a real browser it covers the app
  * for a couple of seconds, so every test page load skips it first. */
@@ -23,7 +31,7 @@ const ok = (c, l, e) => { console.log(`${c?'PASS':'FAIL'} ${l}${e!==undefined?' 
   await page.setViewport({ width: 1440, height: 1000 });
   await page.goto('http://localhost:3000', { waitUntil: 'networkidle0' });
   await dismissSplash(page);
-  await page.click('#btn-mic-start');
+  await ensureMic(page);
   await page.waitForFunction(() => document.querySelector('#view-tune .wave-card').classList.contains('in-tune'), { timeout: 10000, polling: 150 });
 
   const audit = await page.evaluate(() => {

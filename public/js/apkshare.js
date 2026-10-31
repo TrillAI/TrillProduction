@@ -26,7 +26,7 @@
 
   async function fetchMeta() {
     /* a fetch on file:// cannot work (and logs a console error) — skip it */
-    if (location.protocol === 'file:') return null;
+    if (location.protocol === 'file:' || location.hostname === 'appassets.androidplatform.net') return null;
     try {
       const r = await fetch('/download/trill-tuner.apk', { method: 'HEAD' });
       if (!r.ok) return null;
@@ -45,7 +45,7 @@
     if (els.meta) {
       els.meta.textContent = meta && meta.size
         ? 'TrillTuner.apk · ' + (meta.size / 1048576).toFixed(1) + ' MB · served by this app'
-        : (location.protocol === 'file:'
+        : ((location.protocol === 'file:' || location.hostname === 'appassets.androidplatform.net')
           ? 'TrillTuner.apk · the Android app — the QR opens the copy hosted by the web version'
           : 'APK not built yet on this host — run `node tools/build-apk.py`');
     }
@@ -80,7 +80,7 @@
         return;
       }
       if (navigator.share) {
-        navigator.share({ title: 'Trill Tuner — Android app', text: 'Install Trill Tuner (APK):', url: S.url }).catch(() => {});
+        navigator.share({ title: 'Trill Tuner — Android app', text: 'Install the Android app:', url: S.url }).catch(() => {});
       } else {
         (navigator.clipboard ? navigator.clipboard.writeText(S.url) : Promise.reject())
           .then(() => TT.app.toast('APK link copied ✓'))

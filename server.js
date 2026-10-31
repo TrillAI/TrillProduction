@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const leaderboard = require('./leaderboard-server').createLeaderboard();
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';   /* 0.0.0.0 so sandbox/preview proxies can reach it */
@@ -19,6 +20,9 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.woff2': 'font/woff2',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.onnx': 'application/octet-stream',
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
@@ -276,6 +280,7 @@ setInterval(() => {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost');
+  if (await leaderboard.handle(req, res, u)) return;
 
   if (u.pathname === '/api/health') { send(res, 200, { ok: true, app: 'Trill Tuner' }); return; }
 
